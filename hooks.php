@@ -1288,36 +1288,44 @@ HTML;
  * Add WordPress SSO button to Admin Area product page
  */
 add_hook('AdminAreaHeaderOutput', 1, function($vars) {
-    // Only on client services page
-    if (!isset($_GET['action']) || $_GET['action'] !== 'productdetails') {
+    // Check if we're on any client-related page
+    $userId = $_GET['userid'] ?? $_GET['id'] ?? null;
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    
+    // Only show on client pages
+    $isClientPage = (strpos($scriptName, 'clientssummary') !== false || 
+                     strpos($scriptName, 'clientsservices') !== false ||
+                     strpos($scriptName, 'clientsproducts') !== false ||
+                     strpos($scriptName, 'clientsdomains') !== false ||
+                     strpos($scriptName, 'clientsinvoices') !== false ||
+                     strpos($scriptName, 'clientscontacts') !== false);
+    
+    if (!$isClientPage || !$userId) {
         return '';
     }
     
-    $serviceId = $_GET['id'] ?? null;
-    if (!$serviceId) {
-        return '';
+    // Check if this client has any cPanel/DirectAdmin services with WordPress
+    $services = Capsule::table('tblhosting')
+        ->where('userid', $userId)
+        ->where('domainstatus', 'Active')
+        ->get();
+    
+    $hasValidService = false;
+    foreach ($services as $service) {
+        $server = Capsule::table('tblservers')
+            ->where('id', $service->server)
+            ->first();
+        
+        if ($server) {
+            $serverType = strtolower($server->type);
+            if (in_array($serverType, ['cpanel', 'directadmin'])) {
+                $hasValidService = true;
+                break;
+            }
+        }
     }
-
-    // Check if service exists and is cPanel/DirectAdmin
-    $service = Capsule::table('tblhosting')
-        ->where('id', $serviceId)
-        ->first();
-
-    if (!$service || $service->domainstatus !== 'Active') {
-        return '';
-    }
-
-    // Get server type
-    $server = Capsule::table('tblservers')
-        ->where('id', $service->server)
-        ->first();
-
-    if (!$server) {
-        return '';
-    }
-
-    $serverType = strtolower($server->type);
-    if (!in_array($serverType, ['cpanel', 'directadmin'])) {
+    
+    if (!$hasValidService) {
         return '';
     }
 
@@ -1373,6 +1381,7 @@ add_hook('AdminAreaHeaderOutput', 1, function($vars) {
     font-size: 18px;
     flex: 1;
     text-align: center;
+    color: #fff;
 }
 .sso-admin-modal-close {
     background: none;
@@ -1430,100 +1439,83 @@ HTML;
  * Add WordPress SSO button via JavaScript injection
  */
 add_hook('AdminAreaFooterOutput', 1, function($vars) {
-    // Only on client services page
-    if (!isset($_GET['action']) || $_GET['action'] !== 'productdetails') {
+    // Check if we're on any client-related page
+    $userId = $_GET['userid'] ?? $_GET['id'] ?? null;
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    
+    // Only show on client pages
+    $isClientPage = (strpos($scriptName, 'clientssummary') !== false || 
+                     strpos($scriptName, 'clientsservices') !== false ||
+                     strpos($scriptName, 'clientsproducts') !== false ||
+                     strpos($scriptName, 'clientsdomains') !== false ||
+                     strpos($scriptName, 'clientsinvoices') !== false ||
+                     strpos($scriptName, 'clientscontacts') !== false);
+    
+    if (!$isClientPage || !$userId) {
         return '';
     }
     
-    $serviceId = $_GET['id'] ?? null;
-    if (!$serviceId) {
-        return '';
+    // Check if this client has any cPanel/DirectAdmin services
+    $services = Capsule::table('tblhosting')
+        ->where('userid', $userId)
+        ->where('domainstatus', 'Active')
+        ->get();
+    
+    $hasValidService = false;
+    foreach ($services as $service) {
+        $server = Capsule::table('tblservers')
+            ->where('id', $service->server)
+            ->first();
+        
+        if ($server) {
+            $serverType = strtolower($server->type);
+            if (in_array($serverType, ['cpanel', 'directadmin'])) {
+                $hasValidService = true;
+                break;
+            }
+        }
     }
-
-    // Check if service exists and is cPanel/DirectAdmin
-    $service = Capsule::table('tblhosting')
-        ->where('id', $serviceId)
-        ->first();
-
-    if (!$service || $service->domainstatus !== 'Active') {
-        return '';
-    }
-
-    // Get server type
-    $server = Capsule::table('tblservers')
-        ->where('id', $service->server)
-        ->first();
-
-    if (!$server) {
-        return '';
-    }
-
-    $serverType = strtolower($server->type);
-    if (!in_array($serverType, ['cpanel', 'directadmin'])) {
+    
+    if (!$hasValidService) {
         return '';
     }
 
     return <<<HTML
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Find the "עבור" button or similar action buttons
-    var actionButtons = document.querySelectorAll('.btn-default, .btn-primary');
-    var targetBtn = null;
+    // Check if button already exists
+    if (document.getElementById('sso-admin-wp-btn')) return;
     
-    actionButtons.forEach(function(btn) {
-        if (btn.textContent.trim() === 'עבור' || btn.textContent.trim() === 'Go to Panel' || btn.textContent.trim() === 'Login to Panel') {
-            targetBtn = btn;
-        }
-    });
+    // Find the client profile header area - look for the client name/title
+    var headerArea = document.querySelector('.client-header, .header-lined, .title-header, h1, h2');
+    var tabsArea = document.querySelector('.nav-tabs, .client-tabs, ul.nav');
     
-    // Also try to find by looking at links containing the server login
-    if (!targetBtn) {
-        var links = document.querySelectorAll('a.btn');
-        links.forEach(function(link) {
-            if (link.href && (link.href.indexOf(':2083') !== -1 || link.href.indexOf(':2087') !== -1 || link.href.indexOf(':2222') !== -1)) {
-                targetBtn = link;
-            }
-        });
-    }
+    // Create the SSO button
+    var ssoBtn = document.createElement('a');
+    ssoBtn.href = '#';
+    ssoBtn.id = 'sso-admin-wp-btn';
+    ssoBtn.className = 'sso-admin-btn';
+    ssoBtn.innerHTML = '<i class="fab fa-wordpress"></i> התחברות לאתרים';
+    ssoBtn.onclick = function(e) {
+        e.preventDefault();
+        openAdminSSOModal({$userId});
+    };
     
-    // Try finding the button in the product details header area
-    if (!targetBtn) {
-        var headerBtns = document.querySelectorAll('.header-lined .btn, .title-header .btn, #content .btn');
-        if (headerBtns.length > 0) {
-            targetBtn = headerBtns[0];
-        }
-    }
-    
-    if (targetBtn) {
-        var ssoBtn = document.createElement('a');
-        ssoBtn.href = '#';
-        ssoBtn.className = 'sso-admin-btn';
-        ssoBtn.innerHTML = '<i class="fas fa-wordpress"></i> התחברות לאתרים';
-        ssoBtn.onclick = function(e) {
-            e.preventDefault();
-            openAdminSSOModal({$serviceId});
-        };
-        targetBtn.parentNode.insertBefore(ssoBtn, targetBtn.nextSibling);
+    // Try to insert near the tabs or header
+    if (tabsArea && tabsArea.parentNode) {
+        tabsArea.parentNode.insertBefore(ssoBtn, tabsArea);
+    } else if (headerArea) {
+        headerArea.appendChild(ssoBtn);
     } else {
-        // Fallback: add to page header
-        var pageHeader = document.querySelector('.header-lined, .title-header, #content h1, #content h2');
-        if (pageHeader) {
-            var ssoBtn = document.createElement('a');
-            ssoBtn.href = '#';
-            ssoBtn.className = 'sso-admin-btn';
-            ssoBtn.style.marginTop = '10px';
-            ssoBtn.style.display = 'inline-block';
-            ssoBtn.innerHTML = '<i class="fas fa-wordpress"></i> התחברות לאתרים';
-            ssoBtn.onclick = function(e) {
-                e.preventDefault();
-                openAdminSSOModal({$serviceId});
-            };
-            pageHeader.appendChild(ssoBtn);
+        // Fallback: add to top of content
+        var content = document.querySelector('#content, .main-content, .contentarea');
+        if (content) {
+            content.insertBefore(ssoBtn, content.firstChild);
         }
     }
 });
 
-function openAdminSSOModal(serviceId) {
+function openAdminSSOModal(userId) {
     // Remove existing modal
     var existing = document.getElementById('admin-sso-modal');
     if (existing) existing.remove();
@@ -1531,7 +1523,7 @@ function openAdminSSOModal(serviceId) {
     var modalHtml = '<div class="sso-admin-modal-overlay" id="admin-sso-modal">' +
         '<div class="sso-admin-modal">' +
             '<div class="sso-admin-modal-header">' +
-                '<h3><i class="fas fa-wordpress"></i> התחברות לאתרי וורדפרס</h3>' +
+                '<h3><i class="fab fa-wordpress"></i> התחברות לאתרי וורדפרס</h3>' +
                 '<button class="sso-admin-modal-close" onclick="closeAdminSSOModal()">&times;</button>' +
             '</div>' +
             '<div class="sso-admin-modal-body" id="admin-sso-modal-body">' +
@@ -1542,10 +1534,18 @@ function openAdminSSOModal(serviceId) {
     
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
-    // Load installations
-    fetch('addonmodules.php?module=softaculous_sso&action=admin_get_installations&service_id=' + serviceId)
-    .then(response => response.json())
-    .then(data => {
+    // Load installations for all services of this user
+    fetch('addonmodules.php?module=softaculous_sso&action=admin_get_all_installations&user_id=' + userId)
+    .then(response => response.text())
+    .then(text => {
+        var data;
+        try {
+            data = JSON.parse(text);
+        } catch(e) {
+            document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-error">שגיאה בטעינת הנתונים</div>';
+            return;
+        }
+        
         if (data.error) {
             document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-error">' + data.error + '</div>';
             return;
@@ -1558,17 +1558,15 @@ function openAdminSSOModal(serviceId) {
         }
         
         var html = '<table class="sso-admin-table">';
-        html += '<thead><tr><th>כתובת האתר</th><th>גירסה</th><th>פעולה</th></tr></thead>';
+        html += '<thead><tr><th>כתובת האתר</th><th>פעולה</th></tr></thead>';
         html += '<tbody>';
         
-        installations.forEach(function(inst) {
-            var siteUrl = inst.softurl || inst.siteurl || inst.url || '';
-            var version = inst.softversion || inst.ver || '-';
-            var insId = inst.insid || inst.id || '';
-            
+        installations.forEach(function(install) {
+            var serviceId = install._service_id || '';
+            var siteUrl = install.softurl || install.siteurl || install.url || 'לא ידוע';
+            var insId = install.insid || install.id || '';
             html += '<tr>';
             html += '<td><a href="' + siteUrl + '" target="_blank">' + siteUrl + '</a></td>';
-            html += '<td>' + version + '</td>';
             html += '<td><button class="sso-admin-btn" onclick="adminSSO(' + serviceId + ', \'' + insId + '\')"><i class="fas fa-sign-in-alt"></i> התחבר</button></td>';
             html += '</tr>';
         });

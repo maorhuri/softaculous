@@ -73,6 +73,12 @@ function softaculous_sso_output($vars)
         exit;
     }
     
+    if ($action === 'admin_get_all_installations') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_get_all_installations());
+        exit;
+    }
+    
     if ($action === 'admin_sso') {
         softaculous_sso_admin_sso();
         exit;
@@ -155,19 +161,104 @@ function softaculous_sso_admin_sso()
             $serverDetails['secure']
         );
         
-        $ssoUrl = $api->getWordPressSSOUrl($insId);
+        $ssoUrl = $api->getSignOnUrl($insId);
         
         if (isset($ssoUrl['error'])) {
             die('שגיאה: ' . $ssoUrl['error']);
         }
         
-        if (!empty($ssoUrl['url'])) {
-            header('Location: ' . $ssoUrl['url']);
+        if (!empty($ssoUrl['sign_on_url'])) {
+            header('Location: ' . $ssoUrl['sign_on_url']);
             exit;
         }
         
         die('לא ניתן ליצור קישור התחברות');
     } catch (\Exception $e) {
         die('שגיאה: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Get all WordPress installations for all services of a user
+ */
+function softaculous_sso_admin_get_all_installations()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $userId = $_GET['user_id'] ?? '';
+    
+    if (empty($userId)) {
+        return ['error' => 'חסר מזהה לקוח'];
+    }
+    
+    try {
+        // Get all active services for this user
+        $services = Capsule::table('tblhosting')
+            ->where('userid', $userId)
+            ->where('domainstatus', 'Active')
+            ->get();
+        
+        if (empty($services) || count($services) === 0) {
+            return ['error' => 'לא נמצאו שירותים פעילים'];
+        }
+        
+        $allInstallations = [];
+        
+        foreach ($services as $service) {
+            // Get server details
+            $server = Capsule::table('tblservers')
+                ->where('id', $service->server)
+                ->first();
+            
+            if (!$server) {
+                continue;
+            }
+            
+            $serverType = strtolower($server->type);
+            if (!in_array($serverType, ['cpanel', 'directadmin'])) {
+                continue;
+            }
+            
+            // Get server details for API
+            $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($service->id);
+            
+            if (!$serverDetails) {
+                continue;
+            }
+            
+            $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+            
+            try {
+                $api = new \SoftaculousSso\SoftaculousAPI(
+                    $serverDetails['server_type'],
+                    $serverDetails['hostname'],
+                    $port,
+                    $serverDetails['username'],
+                    $serverDetails['password'],
+                    $serverDetails['secure']
+                );
+                
+                $result = $api->getWordPressInstallations();
+                
+                // getWordPressInstallations returns ['installations' => [...]]
+                $installations = $result['installations'] ?? $result;
+                
+                if (!empty($installations) && is_array($installations)) {
+                    foreach ($installations as $install) {
+                        if (is_array($install)) {
+                            $install['_service_id'] = $service->id;
+                            $allInstallations[] = $install;
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                continue;
+            }
+        }
+        
+        return ['installations' => $allInstallations];
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
     }
 }
