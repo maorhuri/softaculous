@@ -1277,3 +1277,319 @@ function activateTheme(insId, slug) {
 </script>
 HTML;
 });
+
+/**
+ * =====================================================
+ * ADMIN AREA HOOKS
+ * =====================================================
+ */
+
+/**
+ * Add WordPress SSO button to Admin Area product page
+ */
+add_hook('AdminAreaHeaderOutput', 1, function($vars) {
+    // Only on client services page
+    if (!isset($_GET['action']) || $_GET['action'] !== 'productdetails') {
+        return '';
+    }
+    
+    $serviceId = $_GET['id'] ?? null;
+    if (!$serviceId) {
+        return '';
+    }
+
+    // Check if service exists and is cPanel/DirectAdmin
+    $service = Capsule::table('tblhosting')
+        ->where('id', $serviceId)
+        ->first();
+
+    if (!$service || $service->domainstatus !== 'Active') {
+        return '';
+    }
+
+    // Get server type
+    $server = Capsule::table('tblservers')
+        ->where('id', $service->server)
+        ->first();
+
+    if (!$server) {
+        return '';
+    }
+
+    $serverType = strtolower($server->type);
+    if (!in_array($serverType, ['cpanel', 'directadmin'])) {
+        return '';
+    }
+
+    return <<<HTML
+<style>
+.sso-admin-btn {
+    background: linear-gradient(135deg, #bd417b 0%, #e91e8c 100%);
+    color: #fff !important;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-left: 10px;
+    text-decoration: none !important;
+    display: inline-block;
+}
+.sso-admin-btn:hover {
+    background: linear-gradient(135deg, #a03568 0%, #d01a7d 100%);
+    color: #fff !important;
+}
+.sso-admin-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.sso-admin-modal {
+    background: #fff;
+    border-radius: 10px;
+    max-width: 700px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+.sso-admin-modal-header {
+    background: linear-gradient(135deg, #bd417b 0%, #e91e8c 100%);
+    color: #fff;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.sso-admin-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    flex: 1;
+    text-align: center;
+}
+.sso-admin-modal-close {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+.sso-admin-modal-body {
+    padding: 20px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.sso-admin-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.sso-admin-table th,
+.sso-admin-table td {
+    padding: 12px;
+    text-align: right;
+    border-bottom: 1px solid #eee;
+}
+.sso-admin-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+}
+.sso-admin-table tr:hover {
+    background: #f5f5f5;
+}
+.sso-admin-loading {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+.sso-admin-error {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 15px;
+    border-radius: 5px;
+    text-align: center;
+}
+.sso-admin-empty {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+</style>
+HTML;
+});
+
+/**
+ * Add WordPress SSO button via JavaScript injection
+ */
+add_hook('AdminAreaFooterOutput', 1, function($vars) {
+    // Only on client services page
+    if (!isset($_GET['action']) || $_GET['action'] !== 'productdetails') {
+        return '';
+    }
+    
+    $serviceId = $_GET['id'] ?? null;
+    if (!$serviceId) {
+        return '';
+    }
+
+    // Check if service exists and is cPanel/DirectAdmin
+    $service = Capsule::table('tblhosting')
+        ->where('id', $serviceId)
+        ->first();
+
+    if (!$service || $service->domainstatus !== 'Active') {
+        return '';
+    }
+
+    // Get server type
+    $server = Capsule::table('tblservers')
+        ->where('id', $service->server)
+        ->first();
+
+    if (!$server) {
+        return '';
+    }
+
+    $serverType = strtolower($server->type);
+    if (!in_array($serverType, ['cpanel', 'directadmin'])) {
+        return '';
+    }
+
+    return <<<HTML
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Find the "עבור" button or similar action buttons
+    var actionButtons = document.querySelectorAll('.btn-default, .btn-primary');
+    var targetBtn = null;
+    
+    actionButtons.forEach(function(btn) {
+        if (btn.textContent.trim() === 'עבור' || btn.textContent.trim() === 'Go to Panel' || btn.textContent.trim() === 'Login to Panel') {
+            targetBtn = btn;
+        }
+    });
+    
+    // Also try to find by looking at links containing the server login
+    if (!targetBtn) {
+        var links = document.querySelectorAll('a.btn');
+        links.forEach(function(link) {
+            if (link.href && (link.href.indexOf(':2083') !== -1 || link.href.indexOf(':2087') !== -1 || link.href.indexOf(':2222') !== -1)) {
+                targetBtn = link;
+            }
+        });
+    }
+    
+    // Try finding the button in the product details header area
+    if (!targetBtn) {
+        var headerBtns = document.querySelectorAll('.header-lined .btn, .title-header .btn, #content .btn');
+        if (headerBtns.length > 0) {
+            targetBtn = headerBtns[0];
+        }
+    }
+    
+    if (targetBtn) {
+        var ssoBtn = document.createElement('a');
+        ssoBtn.href = '#';
+        ssoBtn.className = 'sso-admin-btn';
+        ssoBtn.innerHTML = '<i class="fas fa-wordpress"></i> התחברות לאתרים';
+        ssoBtn.onclick = function(e) {
+            e.preventDefault();
+            openAdminSSOModal({$serviceId});
+        };
+        targetBtn.parentNode.insertBefore(ssoBtn, targetBtn.nextSibling);
+    } else {
+        // Fallback: add to page header
+        var pageHeader = document.querySelector('.header-lined, .title-header, #content h1, #content h2');
+        if (pageHeader) {
+            var ssoBtn = document.createElement('a');
+            ssoBtn.href = '#';
+            ssoBtn.className = 'sso-admin-btn';
+            ssoBtn.style.marginTop = '10px';
+            ssoBtn.style.display = 'inline-block';
+            ssoBtn.innerHTML = '<i class="fas fa-wordpress"></i> התחברות לאתרים';
+            ssoBtn.onclick = function(e) {
+                e.preventDefault();
+                openAdminSSOModal({$serviceId});
+            };
+            pageHeader.appendChild(ssoBtn);
+        }
+    }
+});
+
+function openAdminSSOModal(serviceId) {
+    // Remove existing modal
+    var existing = document.getElementById('admin-sso-modal');
+    if (existing) existing.remove();
+    
+    var modalHtml = '<div class="sso-admin-modal-overlay" id="admin-sso-modal">' +
+        '<div class="sso-admin-modal">' +
+            '<div class="sso-admin-modal-header">' +
+                '<h3><i class="fas fa-wordpress"></i> התחברות לאתרי וורדפרס</h3>' +
+                '<button class="sso-admin-modal-close" onclick="closeAdminSSOModal()">&times;</button>' +
+            '</div>' +
+            '<div class="sso-admin-modal-body" id="admin-sso-modal-body">' +
+                '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> טוען אתרים...</div>' +
+            '</div>' +
+        '</div>' +
+    '</div>';
+    
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    
+    // Load installations
+    fetch('addonmodules.php?module=softaculous_sso&action=admin_get_installations&service_id=' + serviceId)
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-error">' + data.error + '</div>';
+            return;
+        }
+        
+        var installations = data.installations || [];
+        if (installations.length === 0) {
+            document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-empty">לא נמצאו התקנות וורדפרס</div>';
+            return;
+        }
+        
+        var html = '<table class="sso-admin-table">';
+        html += '<thead><tr><th>כתובת האתר</th><th>גירסה</th><th>פעולה</th></tr></thead>';
+        html += '<tbody>';
+        
+        installations.forEach(function(inst) {
+            var siteUrl = inst.softurl || inst.siteurl || inst.url || '';
+            var version = inst.softversion || inst.ver || '-';
+            var insId = inst.insid || inst.id || '';
+            
+            html += '<tr>';
+            html += '<td><a href="' + siteUrl + '" target="_blank">' + siteUrl + '</a></td>';
+            html += '<td>' + version + '</td>';
+            html += '<td><button class="sso-admin-btn" onclick="adminSSO(' + serviceId + ', \'' + insId + '\')"><i class="fas fa-sign-in-alt"></i> התחבר</button></td>';
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table>';
+        document.getElementById('admin-sso-modal-body').innerHTML = html;
+    })
+    .catch(error => {
+        document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-error">שגיאה בטעינת האתרים</div>';
+    });
+}
+
+function closeAdminSSOModal() {
+    var modal = document.getElementById('admin-sso-modal');
+    if (modal) modal.remove();
+}
+
+function adminSSO(serviceId, insId) {
+    // Open SSO in new tab
+    window.open('addonmodules.php?module=softaculous_sso&action=admin_sso&service_id=' + serviceId + '&insid=' + insId, '_blank');
+}
+</script>
+HTML;
+});
