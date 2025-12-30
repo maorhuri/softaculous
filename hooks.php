@@ -2283,7 +2283,7 @@ function openAdminPluginsModal(serviceId, insId) {
     modalHtml += '</div></div></div>';
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
-    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=get_plugins&service_id=' + serviceId + '&insid=' + insId)
+    fetch('../modules/addons/softaculous_sso/admin_ajax.php?cmd=get_plugins&service_id=' + serviceId + '&insid=' + insId)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2293,26 +2293,74 @@ function openAdminPluginsModal(serviceId, insId) {
             return;
         }
         
-        var plugins = data.plugins || [];
+        // Get plugins from plugins_list (same as client area)
+        var rootData = data.plugins || data;
+        var pluginsData = rootData.plugins_list || data.plugins_list || rootData || {};
+        var plugins = [];
+        
+        if (typeof pluginsData === 'object' && !Array.isArray(pluginsData)) {
+            Object.keys(pluginsData).forEach(function(key) {
+                var plugin = pluginsData[key];
+                if (plugin && typeof plugin === 'object') {
+                    plugin._file = key;
+                    plugins.push(plugin);
+                }
+            });
+        } else if (Array.isArray(pluginsData)) {
+            plugins = pluginsData;
+        }
+        
+        plugins = plugins.filter(function(p) { return p !== null && p !== undefined; });
+        
         if (plugins.length === 0) {
             document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-empty">לא נמצאו תוספים</div>';
             return;
         }
         
-        var html = '<table class="sso-admin-table"><thead><tr><th>תוסף</th><th>סטטוס</th><th>פעולה</th></tr></thead><tbody>';
+        // Sort: active first
+        plugins.sort(function(a, b) {
+            var aActive = a.activated === 1 || a.activated === '1' || a.activated === true;
+            var bActive = b.activated === 1 || b.activated === '1' || b.activated === true;
+            if (aActive && !bActive) return -1;
+            if (!aActive && bActive) return 1;
+            return 0;
+        });
+        
+        // Add upload button
+        var html = '<div style="margin-bottom:15px;display:flex;gap:10px;align-items:center;">';
+        html += '<button class="sso-admin-btn" onclick="showUploadPluginForm(' + serviceId + ', \\'' + insId + '\\')"><i class="fas fa-upload"></i> העלאת תוסף</button>';
+        html += '<span style="color:#666;font-size:12px;">(' + plugins.length + ' תוספים)</span>';
+        html += '</div>';
+        html += '<div id="upload-plugin-form" style="display:none;margin-bottom:15px;padding:15px;background:#f8f9fa;border-radius:8px;border:1px dashed #bd417b;">';
+        html += '<form id="plugin-upload-form" method="POST" enctype="multipart/form-data" action="../modules/addons/softaculous_sso/admin_ajax.php?cmd=upload_plugin&service_id=' + serviceId + '&insid=' + insId + '&autoclose=1" target="_blank">';
+        html += '<input type="file" name="plugin_zip" id="plugin-zip-file" accept=".zip" style="margin-bottom:10px;">';
+        html += '<div style="display:flex;gap:10px;">';
+        html += '<button type="button" class="sso-admin-btn" onclick="submitPluginUpload(' + serviceId + ', \\'' + insId + '\\')"><i class="fas fa-cloud-upload-alt"></i> העלה</button>';
+        html += '<button type="button" class="sso-admin-btn sso-admin-btn-secondary" onclick="hideUploadPluginForm()">ביטול</button>';
+        html += '</div>';
+        html += '<p style="margin:10px 0 0;font-size:11px;color:#666;">יש להעלות קובץ ZIP של התוסף</p>';
+        html += '</form>';
+        html += '</div>';
+        html += '<table class="sso-admin-table"><thead><tr><th>תוסף</th><th>גירסה</th><th>סטטוס</th><th>פעולה</th></tr></thead><tbody>';
         plugins.forEach(function(plugin) {
-            var statusClass = plugin.status === 'active' ? 'badge-active' : 'badge-inactive';
-            var statusText = plugin.status === 'active' ? 'פעיל' : 'לא פעיל';
-            var actionBtn = plugin.status === 'active' 
-                ? '<button class="sso-admin-btn sso-admin-btn-small" onclick="adminTogglePlugin(' + serviceId + ', \\'' + insId + '\\', \\'' + plugin.slug + '\\', \\'deactivate\\')">השבת</button>'
-                : '<button class="sso-admin-btn sso-admin-btn-small" onclick="adminTogglePlugin(' + serviceId + ', \\'' + insId + '\\', \\'' + plugin.slug + '\\', \\'activate\\')">הפעל</button>';
-            html += '<tr><td>' + plugin.name + '</td><td><span class="' + statusClass + '">' + statusText + '</span></td><td>' + actionBtn + '</td></tr>';
+            var pluginName = plugin.Name || plugin['Plugin Name'] || plugin.name || plugin.title || 'Unknown';
+            var pluginVersion = plugin.Version || plugin.version || '-';
+            var pluginSlug = plugin._file || plugin.slug || plugin.Slug || pluginName;
+            var isActive = plugin.activated === 1 || plugin.activated === '1' || plugin.activated === true;
+            var statusClass = isActive ? 'badge-active' : 'badge-inactive';
+            var statusText = isActive ? 'פעיל' : 'לא פעיל';
+            var safeSlug = (pluginSlug || '').replace(/'/g, "\\\\'");
+            var toggleBtn = isActive 
+                ? '<button class="sso-admin-btn sso-admin-btn-small" onclick="adminTogglePlugin(' + serviceId + ', \\'' + insId + '\\', \\'' + safeSlug + '\\', \\'deactivate\\')">השבת</button>'
+                : '<button class="sso-admin-btn sso-admin-btn-small" onclick="adminTogglePlugin(' + serviceId + ', \\'' + insId + '\\', \\'' + safeSlug + '\\', \\'activate\\')">הפעל</button>';
+            var deleteBtn = '<button class="sso-admin-btn sso-admin-btn-small sso-admin-btn-danger" onclick="adminDeletePlugin(' + serviceId + ', \\'' + insId + '\\', \\'' + safeSlug + '\\', \\'' + pluginName.replace(/'/g, "\\\\'") + '\\', ' + isActive + ')"><i class="fas fa-trash"></i></button>';
+            html += '<tr><td>' + pluginName + '</td><td>' + pluginVersion + '</td><td><span class="' + statusClass + '">' + statusText + '</span></td><td>' + toggleBtn + ' ' + deleteBtn + '</td></tr>';
         });
         html += '</tbody></table>';
         document.getElementById('admin-plugins-body').innerHTML = html;
     })
     .catch(error => {
-        document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-error">שגיאה בטעינת תוספים</div>';
+        document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-error">שגיאה בטעינת תוספים: ' + error.message + '</div>';
     });
 }
 
@@ -2324,7 +2372,7 @@ function closeAdminPluginsModal() {
 function adminTogglePlugin(serviceId, insId, slug, action) {
     document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מעדכן...</div>';
     
-    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=toggle_plugin&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug + '&plugin_action=' + action)
+    fetch('../modules/addons/softaculous_sso/admin_ajax.php?cmd=toggle_plugin&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug + '&plugin_action=' + action)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2340,6 +2388,67 @@ function adminTogglePlugin(serviceId, insId, slug, action) {
     });
 }
 
+// Delete plugin function
+function adminDeletePlugin(serviceId, insId, slug, pluginName, isActive) {
+    if (!confirm('האם אתה בטוח שברצונך למחוק את התוסף "' + pluginName + '"?')) {
+        return;
+    }
+    
+    var loadingMsg = isActive ? 'מכבה ומוחק תוסף...' : 'מוחק תוסף...';
+    document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> ' + loadingMsg + '</div>';
+    
+    fetch('../modules/addons/softaculous_sso/admin_ajax.php?cmd=delete_plugin&service_id=' + serviceId + '&insid=' + insId + '&slug=' + encodeURIComponent(slug) + '&is_active=' + (isActive ? '1' : '0'))
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('שגיאה: ' + data.error);
+        } else if (data.success) {
+            alert('התוסף נמחק בהצלחה');
+        }
+        closeAdminPluginsModal();
+        openAdminPluginsModal(serviceId, insId);
+    })
+    .catch(error => {
+        alert('שגיאה במחיקה: ' + error.message);
+        closeAdminPluginsModal();
+        openAdminPluginsModal(serviceId, insId);
+    });
+}
+
+// Upload plugin functions
+function showUploadPluginForm(serviceId, insId) {
+    document.getElementById('upload-plugin-form').style.display = 'block';
+}
+
+function hideUploadPluginForm() {
+    document.getElementById('upload-plugin-form').style.display = 'none';
+    document.getElementById('plugin-zip-file').value = '';
+}
+
+function submitPluginUpload(serviceId, insId) {
+    var fileInput = document.getElementById('plugin-zip-file');
+    if (!fileInput.files || fileInput.files.length === 0) {
+        alert('יש לבחור קובץ ZIP');
+        return;
+    }
+    
+    var file = fileInput.files[0];
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+        alert('יש להעלות קובץ ZIP בלבד');
+        return;
+    }
+    
+    // Submit form - opens in new tab
+    document.getElementById('plugin-upload-form').submit();
+    
+    // Show refresh button immediately
+    document.getElementById('admin-plugins-body').innerHTML = '<div style="text-align:center;padding:30px;">' +
+        '<p style="margin-bottom:15px;font-size:16px;"><i class="fas fa-external-link-alt" style="color:#bd417b;"></i> ההעלאה נפתחה בחלון חדש</p>' +
+        '<p style="margin-bottom:20px;color:#666;">לאחר שתראה הודעת הצלחה, סגור את החלון ולחץ:</p>' +
+        '<button class="sso-admin-btn" onclick="closeAdminPluginsModal();openAdminPluginsModal(' + serviceId + ', \\'' + insId + '\\')"><i class="fas fa-sync"></i> רענן רשימת תוספים</button>' +
+        '</div>';
+}
+
 // Admin Themes Modal
 function openAdminThemesModal(serviceId, insId) {
     var modalHtml = '<div class="sso-admin-modal-overlay" id="admin-themes-modal" onclick="if(event.target===this)closeAdminThemesModal()">';
@@ -2350,7 +2459,7 @@ function openAdminThemesModal(serviceId, insId) {
     modalHtml += '</div></div></div>';
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
-    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=get_themes&service_id=' + serviceId + '&insid=' + insId)
+    fetch('../modules/addons/softaculous_sso/admin_ajax.php?cmd=get_themes&service_id=' + serviceId + '&insid=' + insId)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2358,20 +2467,51 @@ function openAdminThemesModal(serviceId, insId) {
             return;
         }
         
-        var themes = data.themes || [];
+        // Get themes from themes_list (same as client area)
+        var rootData = data.themes || data;
+        var themesData = rootData.themes_list || data.themes_list || rootData || {};
+        var themes = [];
+        
+        if (typeof themesData === 'object' && !Array.isArray(themesData)) {
+            Object.keys(themesData).forEach(function(key) {
+                var theme = themesData[key];
+                if (theme && typeof theme === 'object') {
+                    theme._slug = key;
+                    themes.push(theme);
+                }
+            });
+        } else if (Array.isArray(themesData)) {
+            themes = themesData;
+        }
+        
+        themes = themes.filter(function(t) { return t !== null && t !== undefined; });
+        
         if (themes.length === 0) {
             document.getElementById('admin-themes-body').innerHTML = '<div class="sso-admin-empty">לא נמצאו תבניות</div>';
             return;
         }
         
+        // Sort: active first
+        themes.sort(function(a, b) {
+            var aActive = a.activated === 1 || a.activated === '1' || a.activated === true;
+            var bActive = b.activated === 1 || b.activated === '1' || b.activated === true;
+            if (aActive && !bActive) return -1;
+            if (!aActive && bActive) return 1;
+            return 0;
+        });
+        
         var html = '<table class="sso-admin-table"><thead><tr><th>תבנית</th><th>סטטוס</th><th>פעולה</th></tr></thead><tbody>';
         themes.forEach(function(theme) {
-            var statusClass = theme.status === 'active' ? 'badge-active' : 'badge-inactive';
-            var statusText = theme.status === 'active' ? 'פעילה' : 'לא פעילה';
-            var actionBtn = theme.status === 'active' 
+            var themeName = theme.Name || theme['Theme Name'] || theme.name || theme.title || theme._slug || 'Unknown';
+            var themeSlug = theme._slug || theme.slug || theme.stylesheet || themeName;
+            var isActive = theme.activated === 1 || theme.activated === '1' || theme.activated === true;
+            var statusClass = isActive ? 'badge-active' : 'badge-inactive';
+            var statusText = isActive ? 'פעילה' : 'לא פעילה';
+            var safeSlug = (themeSlug || '').replace(/'/g, "\\\\'");
+            var actionBtn = isActive 
                 ? '<span style="color:#999;">תבנית פעילה</span>'
-                : '<button class="sso-admin-btn sso-admin-btn-small" onclick="adminActivateTheme(' + serviceId + ', \\'' + insId + '\\', \\'' + theme.slug + '\\')">הפעל</button>';
-            html += '<tr><td>' + theme.name + '</td><td><span class="' + statusClass + '">' + statusText + '</span></td><td>' + actionBtn + '</td></tr>';
+                : '<button class="sso-admin-btn sso-admin-btn-small" onclick="adminActivateTheme(' + serviceId + ', \\'' + insId + '\\', \\'' + safeSlug + '\\')">הפעל</button>';
+            html += '<tr><td>' + themeName + '</td><td><span class="' + statusClass + '">' + statusText + '</span></td><td>' + actionBtn + '</td></tr>';
         });
         html += '</tbody></table>';
         document.getElementById('admin-themes-body').innerHTML = html;
@@ -2389,7 +2529,7 @@ function closeAdminThemesModal() {
 function adminActivateTheme(serviceId, insId, slug) {
     document.getElementById('admin-themes-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מפעיל תבנית...</div>';
     
-    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=activate_theme&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug)
+    fetch('../modules/addons/softaculous_sso/admin_ajax.php?cmd=activate_theme&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug)
     .then(response => response.json())
     .then(data => {
         if (data.error) {

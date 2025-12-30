@@ -1002,6 +1002,154 @@ class SoftaculousAPI
     }
 
     /**
+     * Upload a plugin from ZIP file
+     */
+    public function uploadPlugin($insId, $zipFilePath, $zipFileName)
+    {
+        if ($this->serverType === self::TYPE_DIRECTADMIN) {
+            return $this->uploadPluginDirectAdmin($insId, $zipFilePath, $zipFileName);
+        }
+        
+        return $this->uploadPluginCPanel($insId, $zipFilePath, $zipFileName);
+    }
+
+    /**
+     * Upload plugin for cPanel
+     */
+    private function uploadPluginCPanel($insId, $zipFilePath, $zipFileName)
+    {
+        $protocol = $this->useSSL ? 'https' : 'http';
+        
+        $themePaths = [
+            '/frontend/jupiter/softaculous/index.live.php',
+            '/frontend/paper_lantern/softaculous/index.live.php',
+        ];
+        
+        foreach ($themePaths as $themePath) {
+            $url = "{$protocol}://{$this->hostname}:{$this->port}{$themePath}?api=json&act=wordpress&upload=1";
+            
+            $postFields = [
+                'insid' => $insId,
+                'type' => 'plugins',
+                'activate' => '1',
+                'custom_file' => new \CURLFile($zipFilePath, 'application/zip', $zipFileName)
+            ];
+            
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $postFields);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            curl_setopt($ch, CURLOPT_USERPWD, $this->username . ':' . $this->password);
+            
+            $response = curl_exec($ch);
+            $error = curl_error($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($error) {
+                continue;
+            }
+            
+            if ($httpCode === 200) {
+                $result = json_decode($response, true);
+                if ($result !== null) {
+                    if (isset($result['done'])) {
+                        return ['success' => true, 'message' => 'התוסף הועלה בהצלחה'];
+                    }
+                    return $result;
+                }
+            }
+        }
+        
+        return ['error' => 'Failed to upload plugin'];
+    }
+
+    /**
+     * Upload plugin for DirectAdmin
+     */
+    private function uploadPluginDirectAdmin($insId, $zipFilePath, $zipFileName)
+    {
+        $protocol = $this->useSSL ? 'https' : 'http';
+        $baseUrl = "{$protocol}://{$this->hostname}:{$this->port}";
+        
+        $cookieFile = sys_get_temp_dir() . '/softaculous_upload_' . md5($this->username . time()) . '.txt';
+        
+        // Step 1: Login to DirectAdmin
+        $loginUrl = $baseUrl . '/CMD_LOGIN';
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $loginUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+            'username' => $this->username,
+            'password' => $this->password,
+            'referer' => '/CMD_PLUGINS/softaculous/index.raw'
+        ]));
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFile);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        
+        curl_exec($ch);
+        curl_close($ch);
+        
+        // Step 2: Upload plugin
+        $softUrl = $baseUrl . '/CMD_PLUGINS/softaculous/index.raw?api=json&act=wordpress&upload=1';
+        
+        $postFields = [
+            'insid' => $insId,
+            'type' => 'plugins',
+            'activate' => '1',
+            'custom_file' => new \CURLFile($zipFilePath, 'application/zip', $zipFileName)
+        ];
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $softUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postFields);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+        
+        @unlink($cookieFile);
+        
+        if ($error) {
+            return ['error' => 'cURL Error: ' . $error];
+        }
+        
+        $result = json_decode($response, true);
+        if ($result === null) {
+            return ['error' => 'Invalid JSON response'];
+        }
+        
+        if (isset($result['done'])) {
+            return ['success' => true, 'message' => 'התוסף הועלה בהצלחה'];
+        }
+        
+        return $result;
+    }
+
+    /**
      * Activate a theme
      */
     public function activateTheme($insId, $slug)
