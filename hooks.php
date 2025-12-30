@@ -2283,7 +2283,7 @@ function openAdminPluginsModal(serviceId, insId) {
     modalHtml += '</div></div></div>';
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
-    fetch('index.php?softaculous_sso=1&cmd=get_plugins&service_id=' + serviceId + '&insid=' + insId)
+    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=get_plugins&service_id=' + serviceId + '&insid=' + insId)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2324,7 +2324,7 @@ function closeAdminPluginsModal() {
 function adminTogglePlugin(serviceId, insId, slug, action) {
     document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מעדכן...</div>';
     
-    fetch('index.php?softaculous_sso=1&cmd=toggle_plugin&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug + '&plugin_action=' + action)
+    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=toggle_plugin&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug + '&plugin_action=' + action)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2350,7 +2350,7 @@ function openAdminThemesModal(serviceId, insId) {
     modalHtml += '</div></div></div>';
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
-    fetch('index.php?softaculous_sso=1&cmd=get_themes&service_id=' + serviceId + '&insid=' + insId)
+    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=get_themes&service_id=' + serviceId + '&insid=' + insId)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2389,7 +2389,7 @@ function closeAdminThemesModal() {
 function adminActivateTheme(serviceId, insId, slug) {
     document.getElementById('admin-themes-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מפעיל תבנית...</div>';
     
-    fetch('index.php?softaculous_sso=1&cmd=activate_theme&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug)
+    fetch('modules/addons/softaculous_sso/admin_ajax.php?cmd=activate_theme&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
