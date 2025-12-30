@@ -10,6 +10,166 @@ if (!defined("WHMCS")) {
 
 use WHMCS\Database\Capsule;
 
+// AJAX handler - intercept immediately when softaculous_sso parameter is present
+if (isset($_GET['softaculous_sso']) && $_GET['softaculous_sso'] === '1') {
+    // Clear any output buffers
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+    
+    // Set JSON headers
+    header('Content-Type: application/json; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
+    
+    // Check if admin is logged in
+    if (empty($_SESSION['adminid'])) {
+        echo json_encode(['error' => 'Admin login required']);
+        exit;
+    }
+    
+    // Handle the AJAX request
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $cmd = $_GET['cmd'] ?? '';
+    $serviceId = $_GET['service_id'] ?? '';
+    $insId = $_GET['insid'] ?? '';
+    
+    switch ($cmd) {
+        case 'get_plugins':
+            echo json_encode(softaculous_admin_get_plugins($serviceId, $insId));
+            break;
+        case 'get_themes':
+            echo json_encode(softaculous_admin_get_themes($serviceId, $insId));
+            break;
+        case 'toggle_plugin':
+            $slug = $_GET['slug'] ?? '';
+            $action = $_GET['plugin_action'] ?? '';
+            echo json_encode(softaculous_admin_toggle_plugin($serviceId, $insId, $slug, $action));
+            break;
+        case 'activate_theme':
+            $slug = $_GET['slug'] ?? '';
+            echo json_encode(softaculous_admin_activate_theme($serviceId, $insId, $slug));
+            break;
+        default:
+            echo json_encode(['error' => 'Unknown command']);
+    }
+    exit;
+}
+
+// Admin AJAX helper functions
+function softaculous_admin_get_plugins($serviceId, $insId) {
+    if (empty($serviceId) || empty($insId)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        return $api->getPlugins($insId);
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+function softaculous_admin_get_themes($serviceId, $insId) {
+    if (empty($serviceId) || empty($insId)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        return $api->getThemes($insId);
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+function softaculous_admin_toggle_plugin($serviceId, $insId, $slug, $action) {
+    if (empty($serviceId) || empty($insId) || empty($slug) || empty($action)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        return $api->togglePlugin($insId, $slug, $action);
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+function softaculous_admin_activate_theme($serviceId, $insId, $slug) {
+    if (empty($serviceId) || empty($insId) || empty($slug)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        return $api->activateTheme($insId, $slug);
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
 require_once __DIR__ . '/lib/SoftaculousAPI.php';
 require_once __DIR__ . '/lib/ServiceHelper.php';
 require_once __DIR__ . '/controllers/client.php';
@@ -2123,11 +2283,13 @@ function openAdminPluginsModal(serviceId, insId) {
     modalHtml += '</div></div></div>';
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
-    fetch('addonmodules.php?module=softaculous_sso&action=admin_get_plugins&service_id=' + serviceId + '&insid=' + insId)
+    fetch('index.php?softaculous_sso=1&cmd=get_plugins&service_id=' + serviceId + '&insid=' + insId)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
-            document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-error">' + data.error + '</div>';
+            var errorMsg = data.error;
+            if (data.debug) errorMsg += '<br><small>' + JSON.stringify(data.debug) + '</small>';
+            document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-error">' + errorMsg + '</div>';
             return;
         }
         
@@ -2162,7 +2324,7 @@ function closeAdminPluginsModal() {
 function adminTogglePlugin(serviceId, insId, slug, action) {
     document.getElementById('admin-plugins-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מעדכן...</div>';
     
-    fetch('addonmodules.php?module=softaculous_sso&action=admin_toggle_plugin&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug + '&plugin_action=' + action)
+    fetch('index.php?softaculous_sso=1&cmd=toggle_plugin&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug + '&plugin_action=' + action)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2188,7 +2350,7 @@ function openAdminThemesModal(serviceId, insId) {
     modalHtml += '</div></div></div>';
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     
-    fetch('addonmodules.php?module=softaculous_sso&action=admin_get_themes&service_id=' + serviceId + '&insid=' + insId)
+    fetch('index.php?softaculous_sso=1&cmd=get_themes&service_id=' + serviceId + '&insid=' + insId)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
@@ -2227,7 +2389,7 @@ function closeAdminThemesModal() {
 function adminActivateTheme(serviceId, insId, slug) {
     document.getElementById('admin-themes-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מפעיל תבנית...</div>';
     
-    fetch('addonmodules.php?module=softaculous_sso&action=admin_activate_theme&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug)
+    fetch('index.php?softaculous_sso=1&cmd=activate_theme&service_id=' + serviceId + '&insid=' + insId + '&slug=' + slug)
     .then(response => response.json())
     .then(data => {
         if (data.error) {

@@ -444,6 +444,10 @@ function softaculous_sso_admin_get_plugins()
         
         $result = $api->getPlugins($insId);
         
+        if (isset($result['error'])) {
+            return ['error' => $result['error'], 'debug' => $result];
+        }
+        
         return $result;
     } catch (\Exception $e) {
         return ['error' => 'שגיאה: ' . $e->getMessage()];
