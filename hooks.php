@@ -260,6 +260,41 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
     font-weight: normal;
 }
 
+/* Install Credentials */
+.install-credentials {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    text-align: right;
+}
+.credential-item {
+    margin-bottom: 10px;
+    padding: 10px;
+    background: #fff;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.credential-item:last-child {
+    margin-bottom: 0;
+}
+.credential-item label {
+    font-weight: 600;
+    color: #666;
+    margin: 0;
+}
+.credential-item span {
+    font-family: monospace;
+    background: #e9ecef;
+    padding: 4px 8px;
+    border-radius: 4px;
+    direction: ltr;
+}
+.softaculous-sso-install-btn {
+    margin-top: 10px;
+}
+
 /* Progress Bar */
 .clone-progress {
     text-align: center;
@@ -514,11 +549,12 @@ function loadWordPressInstallations() {
         }
 
         if (!data.installations || data.installations.length === 0) {
-            var debugMsg = '';
-            if (data._debug) {
-                debugMsg = '<br><small style="color:#999;">Debug: ' + JSON.stringify(data._debug) + '</small>';
-            }
-            widgetBody.innerHTML = '<div class="softaculous-sso-empty"><i class="fab fa-wordpress" style="font-size:48px;margin-bottom:15px;display:block;opacity:0.3;"></i>לא נמצאו אתרי וורדפרס' + debugMsg + '</div>';
+            var emptyHtml = '<div class="softaculous-sso-empty">';
+            emptyHtml += '<i class="fab fa-wordpress" style="font-size:48px;margin-bottom:15px;display:block;opacity:0.3;"></i>';
+            emptyHtml += 'לא נמצאו אתרי וורדפרס';
+            emptyHtml += '<br><br><button class="softaculous-sso-btn softaculous-sso-install-btn" onclick="showClientInstallForm()"><i class="fas fa-plus"></i> התקנת אתר חדש</button>';
+            emptyHtml += '</div>';
+            widgetBody.innerHTML = emptyHtml;
             return;
         }
 
@@ -773,6 +809,86 @@ function closeModal(modalId) {
     if (modal) {
         modal.remove();
     }
+}
+
+// Client Install Form
+function showClientInstallForm() {
+    var serviceId = {$serviceId};
+    var domain = '{$domain}';
+    
+    var modalHtml = `
+        <div class="softaculous-modal-overlay" id="install-modal">
+            <div class="softaculous-modal" style="max-width:450px;">
+                <div class="softaculous-modal-header">
+                    <h3><i class="fab fa-wordpress"></i> התקנת וורדפרס חדש</h3>
+                    <button class="softaculous-modal-close" onclick="closeModal('install-modal')">&times;</button>
+                </div>
+                <div class="softaculous-modal-body">
+                    <p style="text-align:center;margin-bottom:20px;">דומיין: <strong>` + domain + `</strong></p>
+                    <div style="text-align:center;">
+                        <button class="softaculous-sso-btn" onclick="clientInstallWordPress()"><i class="fas fa-download"></i> התקן וורדפרס</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function clientInstallWordPress() {
+    var serviceId = {$serviceId};
+    
+    document.querySelector('#install-modal .softaculous-modal-body').innerHTML = '<div class="softaculous-sso-loading"><i class="fas fa-spinner fa-spin"></i><br>מתקין וורדפרס... אנא המתן</div>';
+    
+    fetch('clientarea.php?action=productdetails&id=' + serviceId + '&modop=custom&a=softaculous_sso_install_wordpress&token={$token}')
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            document.querySelector('#install-modal .softaculous-modal-body').innerHTML = '<div class="softaculous-sso-error"><i class="fas fa-times-circle"></i><br>' + data.error + '</div>';
+            return;
+        }
+        
+        var successHtml = '<div class="softaculous-sso-success">';
+        successHtml += '<i class="fas fa-check-circle" style="font-size:48px;color:#28a745;margin-bottom:15px;"></i>';
+        successHtml += '<h4 style="color:#28a745;margin-bottom:20px;">וורדפרס הותקן בהצלחה!</h4>';
+        successHtml += '<div class="install-credentials">';
+        successHtml += '<div class="credential-item"><label>כתובת התחברות:</label><span id="client-cred-url">' + data.admin_url + '</span></div>';
+        successHtml += '<div class="credential-item"><label>שם משתמש:</label><span id="client-cred-user">' + data.admin_username + '</span></div>';
+        successHtml += '<div class="credential-item"><label>סיסמא:</label><span id="client-cred-pass">' + data.admin_password + '</span></div>';
+        successHtml += '</div>';
+        successHtml += '<div style="margin-top:20px;text-align:center;">';
+        successHtml += '<button class="softaculous-sso-btn" onclick="copyClientCredentials()"><i class="fas fa-copy"></i> העתקת פרטים</button> ';
+        successHtml += '<button class="softaculous-sso-btn" onclick="closeModal(\\'install-modal\\'); loadWordPressInstallations();">סגור</button>';
+        successHtml += '</div>';
+        successHtml += '</div>';
+        
+        document.querySelector('#install-modal .softaculous-modal-body').innerHTML = successHtml;
+    })
+    .catch(error => {
+        document.querySelector('#install-modal .softaculous-modal-body').innerHTML = '<div class="softaculous-sso-error"><i class="fas fa-times-circle"></i><br>שגיאה בהתקנה</div>';
+    });
+}
+
+function copyClientCredentials() {
+    var url = document.getElementById('client-cred-url').textContent;
+    var user = document.getElementById('client-cred-user').textContent;
+    var pass = document.getElementById('client-cred-pass').textContent;
+    
+    var text = 'כתובת התחברות: ' + url + '\\n';
+    text += 'שם משתמש: ' + user + '\\n';
+    text += 'סיסמא: ' + pass;
+    
+    navigator.clipboard.writeText(text).then(function() {
+        alert('הפרטים הועתקו בהצלחה!');
+    }).catch(function() {
+        var textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('הפרטים הועתקו בהצלחה!');
+    });
 }
 
 // Actions Modal
@@ -1431,6 +1547,130 @@ add_hook('AdminAreaHeaderOutput', 1, function($vars) {
     padding: 40px;
     color: #666;
 }
+.sso-admin-search-box {
+    margin-bottom: 15px;
+}
+.sso-admin-search-box input {
+    width: 100%;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+    direction: rtl;
+}
+.sso-admin-search-box input:focus {
+    outline: none;
+    border-color: #bd417b;
+}
+.sso-admin-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-top: 15px;
+    flex-wrap: wrap;
+}
+.sso-admin-pagination-info {
+    font-size: 13px;
+    color: #666;
+    margin-left: 10px;
+}
+.sso-admin-page-btn {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.sso-admin-page-btn:hover {
+    background: #e0e0e0;
+}
+.sso-admin-page-btn.active {
+    background: linear-gradient(135deg, #bd417b 0%, #e91e8c 100%);
+    color: #fff;
+    border-color: #bd417b;
+}
+.sso-admin-show-all {
+    background: #fff;
+    border: 1px solid #bd417b;
+    color: #bd417b;
+}
+.sso-admin-show-all:hover {
+    background: #fdf2f7;
+}
+.sso-admin-install-btn {
+    margin-top: 10px;
+}
+.sso-admin-install-form {
+    padding: 20px;
+}
+.sso-admin-form-group {
+    margin-bottom: 15px;
+}
+.sso-admin-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+.sso-admin-form-group select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    font-size: 14px;
+}
+.sso-admin-form-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+.sso-admin-btn-secondary {
+    background: #6c757d !important;
+}
+.sso-admin-btn-secondary:hover {
+    background: #5a6268 !important;
+}
+.sso-admin-btn-danger {
+    background: #dc3545 !important;
+    padding: 8px 10px !important;
+}
+.sso-admin-btn-danger:hover {
+    background: #c82333 !important;
+}
+.sso-admin-success {
+    text-align: center;
+    padding: 20px;
+}
+.sso-admin-credentials {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    text-align: right;
+}
+.sso-admin-credential-item {
+    margin-bottom: 10px;
+    padding: 8px;
+    background: #fff;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.sso-admin-credential-item:last-child {
+    margin-bottom: 0;
+}
+.sso-admin-credential-item label {
+    font-weight: 600;
+    color: #666;
+}
+.sso-admin-credential-item span {
+    font-family: monospace;
+    background: #e9ecef;
+    padding: 4px 8px;
+    border-radius: 4px;
+    direction: ltr;
+}
 </style>
 HTML;
 });
@@ -1516,6 +1756,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function openAdminSSOModal(userId) {
+    // Store userId globally for later use
+    window._adminCurrentUserId = userId;
+    
     // Remove existing modal
     var existing = document.getElementById('admin-sso-modal');
     if (existing) existing.remove();
@@ -1552,31 +1795,129 @@ function openAdminSSOModal(userId) {
         }
         
         var installations = data.installations || [];
+        var services = data.services || [];
+        window._adminServices = services;
+        
         if (installations.length === 0) {
-            document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-empty">לא נמצאו התקנות וורדפרס</div>';
+            var emptyHtml = '<div class="sso-admin-empty">';
+            emptyHtml += '<i class="fab fa-wordpress" style="font-size:48px;margin-bottom:15px;display:block;opacity:0.3;"></i>';
+            emptyHtml += 'לא נמצאו התקנות וורדפרס';
+            if (services.length > 0) {
+                emptyHtml += '<br><br><button class="sso-admin-btn sso-admin-install-btn" onclick="showInstallForm()"><i class="fas fa-plus"></i> התקנת אתר חדש</button>';
+            }
+            emptyHtml += '</div>';
+            document.getElementById('admin-sso-modal-body').innerHTML = emptyHtml;
             return;
         }
         
-        var html = '<table class="sso-admin-table">';
-        html += '<thead><tr><th>כתובת האתר</th><th>פעולה</th></tr></thead>';
-        html += '<tbody>';
+        // Store installations globally for search/pagination
+        window._adminInstallations = installations;
+        window._adminSearch = '';
+        window._adminPage = 1;
+        window._adminPerPage = 5;
+        window._adminShowAll = false;
         
-        installations.forEach(function(install) {
-            var serviceId = install._service_id || '';
-            var siteUrl = install.softurl || install.siteurl || install.url || 'לא ידוע';
-            var insId = install.insid || install.id || '';
-            html += '<tr>';
-            html += '<td><a href="' + siteUrl + '" target="_blank">' + siteUrl + '</a></td>';
-            html += '<td><button class="sso-admin-btn" onclick="adminSSO(' + serviceId + ', \'' + insId + '\')"><i class="fas fa-sign-in-alt"></i> התחבר</button></td>';
-            html += '</tr>';
-        });
-        
-        html += '</tbody></table>';
-        document.getElementById('admin-sso-modal-body').innerHTML = html;
+        renderAdminInstallationsTable();
     })
     .catch(error => {
         document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-error">שגיאה בטעינת האתרים</div>';
     });
+}
+
+function renderAdminInstallationsTable() {
+    var installations = window._adminInstallations || [];
+    var search = (window._adminSearch || '').toLowerCase();
+    var page = window._adminPage || 1;
+    var perPage = window._adminPerPage || 5;
+    var showAll = window._adminShowAll || false;
+    
+    // Filter by search
+    var filtered = installations.filter(function(install) {
+        if (!search) return true;
+        var siteUrl = (install.softurl || install.siteurl || install.url || '').toLowerCase();
+        return siteUrl.indexOf(search) !== -1;
+    });
+    
+    var total = filtered.length;
+    var totalPages = showAll ? 1 : Math.ceil(total / perPage);
+    if (page > totalPages) page = totalPages || 1;
+    
+    // Paginate
+    var start = showAll ? 0 : (page - 1) * perPage;
+    var end = showAll ? total : start + perPage;
+    var pageItems = filtered.slice(start, end);
+    
+    var html = '<div class="sso-admin-search-box">';
+    html += '<input type="text" placeholder="חיפוש לפי כתובת אתר..." value="' + (window._adminSearch || '') + '" oninput="searchAdminInstallations(this.value)">';
+    html += '</div>';
+    
+    html += '<table class="sso-admin-table">';
+    html += '<thead><tr><th>כתובת האתר</th><th>פעולה</th></tr></thead>';
+    html += '<tbody>';
+    
+    pageItems.forEach(function(install) {
+        var serviceId = install._service_id || '';
+        var siteUrl = install.softurl || install.siteurl || install.url || 'לא ידוע';
+        var insId = install.insid || install.id || '';
+        html += '<tr>';
+        html += '<td><a href="' + siteUrl + '" target="_blank">' + siteUrl + '</a></td>';
+        html += '<td>';
+        html += '<button class="sso-admin-btn" onclick="adminSSO(' + serviceId + ', \'' + insId + '\')"><i class="fas fa-sign-in-alt"></i> התחבר</button> ';
+        html += '<button class="sso-admin-btn sso-admin-btn-danger" onclick="adminDeleteInstallation(' + serviceId + ', \'' + insId + '\', \'' + siteUrl.replace(/'/g, "\\'") + '\')"><i class="fas fa-trash"></i> מחיקה</button>';
+        html += '</td>';
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    
+    // Pagination
+    if (total > perPage) {
+        html += '<div class="sso-admin-pagination">';
+        html += '<span class="sso-admin-pagination-info">מציג ' + (start + 1) + '-' + Math.min(end, total) + ' מתוך ' + total + '</span>';
+        
+        if (!showAll) {
+            if (page > 1) {
+                html += '<button class="sso-admin-page-btn" onclick="goToAdminPage(' + (page - 1) + ')">הקודם</button>';
+            }
+            for (var i = 1; i <= totalPages; i++) {
+                html += '<button class="sso-admin-page-btn' + (i === page ? ' active' : '') + '" onclick="goToAdminPage(' + i + ')">' + i + '</button>';
+            }
+            if (page < totalPages) {
+                html += '<button class="sso-admin-page-btn" onclick="goToAdminPage(' + (page + 1) + ')">הבא</button>';
+            }
+            html += '<button class="sso-admin-page-btn sso-admin-show-all" onclick="toggleAdminShowAll()">הצג הכל</button>';
+        } else {
+            html += '<button class="sso-admin-page-btn sso-admin-show-all" onclick="toggleAdminShowAll()">חזור לעמודים</button>';
+        }
+        html += '</div>';
+    }
+    
+    document.getElementById('admin-sso-modal-body').innerHTML = html;
+    
+    // Restore focus to search input
+    var searchInput = document.querySelector('.sso-admin-search-box input');
+    if (searchInput && document.activeElement !== searchInput) {
+        var len = searchInput.value.length;
+        searchInput.focus();
+        searchInput.setSelectionRange(len, len);
+    }
+}
+
+function searchAdminInstallations(val) {
+    window._adminSearch = val;
+    window._adminPage = 1;
+    renderAdminInstallationsTable();
+}
+
+function goToAdminPage(page) {
+    window._adminPage = page;
+    renderAdminInstallationsTable();
+}
+
+function toggleAdminShowAll() {
+    window._adminShowAll = !window._adminShowAll;
+    window._adminPage = 1;
+    renderAdminInstallationsTable();
 }
 
 function closeAdminSSOModal() {
@@ -1587,6 +1928,123 @@ function closeAdminSSOModal() {
 function adminSSO(serviceId, insId) {
     // Open SSO in new tab
     window.open('addonmodules.php?module=softaculous_sso&action=admin_sso&service_id=' + serviceId + '&insid=' + insId, '_blank');
+}
+
+function adminDeleteInstallation(serviceId, insId, siteUrl) {
+    if (!confirm('האם אתה בטוח שברצונך למחוק את האתר:\\n' + siteUrl + '\\n\\nפעולה זו תמחק את כל הקבצים ובסיס הנתונים!')) {
+        return;
+    }
+    
+    document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מוחק התקנה...</div>';
+    
+    fetch('addonmodules.php?module=softaculous_sso&action=admin_delete_installation&service_id=' + serviceId + '&insid=' + insId)
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('שגיאה: ' + data.error);
+            openAdminSSOModal(window._adminCurrentUserId);
+            return;
+        }
+        
+        alert('ההתקנה נמחקה בהצלחה!');
+        openAdminSSOModal(window._adminCurrentUserId);
+    })
+    .catch(error => {
+        alert('שגיאה במחיקה');
+        openAdminSSOModal(window._adminCurrentUserId);
+    });
+}
+
+function showInstallForm() {
+    var services = window._adminServices || [];
+    if (services.length === 0) {
+        alert('לא נמצאו שירותים זמינים להתקנה');
+        return;
+    }
+    
+    var html = '<div class="sso-admin-install-form">';
+    html += '<h4 style="margin-bottom:15px;text-align:center;">התקנת וורדפרס חדש</h4>';
+    
+    if (services.length > 1) {
+        html += '<div class="sso-admin-form-group">';
+        html += '<label>בחר שירות:</label>';
+        html += '<select id="install-service-select">';
+        services.forEach(function(s) {
+            html += '<option value="' + s.id + '" data-domain="' + s.domain + '">' + s.domain + '</option>';
+        });
+        html += '</select>';
+        html += '</div>';
+    } else {
+        html += '<input type="hidden" id="install-service-select" value="' + services[0].id + '">';
+        html += '<p style="text-align:center;margin-bottom:15px;">דומיין: <strong>' + services[0].domain + '</strong></p>';
+    }
+    
+    html += '<div class="sso-admin-form-actions">';
+    html += '<button class="sso-admin-btn" onclick="installWordPress()"><i class="fas fa-download"></i> התקן וורדפרס</button>';
+    html += '<button class="sso-admin-btn sso-admin-btn-secondary" onclick="openAdminSSOModal(window._adminCurrentUserId)">ביטול</button>';
+    html += '</div>';
+    html += '</div>';
+    
+    document.getElementById('admin-sso-modal-body').innerHTML = html;
+}
+
+function installWordPress() {
+    var serviceSelect = document.getElementById('install-service-select');
+    var serviceId = serviceSelect.value;
+    
+    document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מתקין וורדפרס... אנא המתן</div>';
+    
+    fetch('addonmodules.php?module=softaculous_sso&action=admin_install_wordpress&service_id=' + serviceId)
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-error">' + data.error + '<br><br><button class="sso-admin-btn sso-admin-btn-secondary" onclick="openAdminSSOModal(window._adminCurrentUserId)">חזרה</button></div>';
+            return;
+        }
+        
+        // Success - show credentials
+        var html = '<div class="sso-admin-success">';
+        html += '<i class="fas fa-check-circle" style="font-size:48px;color:#28a745;margin-bottom:15px;display:block;"></i>';
+        html += '<h4 style="color:#28a745;margin-bottom:20px;">וורדפרס הותקן בהצלחה!</h4>';
+        html += '<div class="sso-admin-credentials">';
+        html += '<div class="sso-admin-credential-item"><label>כתובת התחברות:</label><span id="cred-url">' + data.admin_url + '</span></div>';
+        html += '<div class="sso-admin-credential-item"><label>שם משתמש:</label><span id="cred-user">' + data.admin_username + '</span></div>';
+        html += '<div class="sso-admin-credential-item"><label>סיסמא:</label><span id="cred-pass">' + data.admin_password + '</span></div>';
+        html += '</div>';
+        html += '<div class="sso-admin-form-actions" style="margin-top:20px;">';
+        html += '<button class="sso-admin-btn" onclick="copyCredentials()"><i class="fas fa-copy"></i> העתקת פרטים</button>';
+        html += '<button class="sso-admin-btn sso-admin-btn-secondary" onclick="openAdminSSOModal(window._adminCurrentUserId)">סגור</button>';
+        html += '</div>';
+        html += '</div>';
+        
+        document.getElementById('admin-sso-modal-body').innerHTML = html;
+    })
+    .catch(error => {
+        document.getElementById('admin-sso-modal-body').innerHTML = '<div class="sso-admin-error">שגיאה בהתקנה<br><br><button class="sso-admin-btn sso-admin-btn-secondary" onclick="openAdminSSOModal(window._adminCurrentUserId)">חזרה</button></div>';
+    });
+}
+
+function copyCredentials() {
+    var url = document.getElementById('cred-url').textContent;
+    var user = document.getElementById('cred-user').textContent;
+    var pass = document.getElementById('cred-pass').textContent;
+    
+    var text = 'כתובת התחברות: ' + url + '\\n';
+    text += 'שם משתמש: ' + user + '\\n';
+    text += 'סיסמא: ' + pass;
+    
+    navigator.clipboard.writeText(text).then(function() {
+        alert('הפרטים הועתקו בהצלחה!');
+    }).catch(function() {
+        // Fallback for older browsers
+        var textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('הפרטים הועתקו בהצלחה!');
+    });
 }
 </script>
 HTML;

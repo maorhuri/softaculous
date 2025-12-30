@@ -84,6 +84,18 @@ function softaculous_sso_output($vars)
         exit;
     }
     
+    if ($action === 'admin_install_wordpress') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_install_wordpress());
+        exit;
+    }
+    
+    if ($action === 'admin_delete_installation') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_delete_installation());
+        exit;
+    }
+    
     echo '<h2>Softaculous WordPress SSO</h2>';
     echo '<p>המודול פעיל. הלקוחות יכולים לראות את אתרי הוורדפרס שלהם בעמוד פרטי המוצר.</p>';
 }
@@ -257,7 +269,117 @@ function softaculous_sso_admin_get_all_installations()
             }
         }
         
-        return ['installations' => $allInstallations];
+        // Build services list for install form
+        $servicesList = [];
+        foreach ($services as $service) {
+            $server = Capsule::table('tblservers')
+                ->where('id', $service->server)
+                ->first();
+            
+            if ($server) {
+                $serverType = strtolower($server->type);
+                if (in_array($serverType, ['cpanel', 'directadmin'])) {
+                    $servicesList[] = [
+                        'id' => $service->id,
+                        'domain' => $service->domain
+                    ];
+                }
+            }
+        }
+        
+        return ['installations' => $allInstallations, 'services' => $servicesList];
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Install WordPress on a service
+ */
+function softaculous_sso_admin_install_wordpress()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $serviceId = $_GET['service_id'] ?? '';
+    
+    if (empty($serviceId)) {
+        return ['error' => 'חסר מזהה שירות'];
+    }
+    
+    try {
+        // Get server details
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        // Install WordPress on the main domain
+        $result = $api->installWordPress($serverDetails['domain']);
+        
+        if (isset($result['error'])) {
+            return ['error' => $result['error']];
+        }
+        
+        return [
+            'success' => true,
+            'admin_url' => $result['admin_url'] ?? 'https://' . $serverDetails['domain'] . '/wp-admin',
+            'admin_username' => $result['admin_username'] ?? 'admin',
+            'admin_password' => $result['admin_password'] ?? ''
+        ];
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Delete WordPress installation (admin)
+ */
+function softaculous_sso_admin_delete_installation()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $serviceId = $_GET['service_id'] ?? '';
+    $insId = $_GET['insid'] ?? '';
+    
+    if (empty($serviceId) || empty($insId)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        $result = $api->deleteInstallation($insId);
+        
+        return $result;
     } catch (\Exception $e) {
         return ['error' => 'שגיאה: ' . $e->getMessage()];
     }

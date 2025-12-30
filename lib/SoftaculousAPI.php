@@ -311,6 +311,371 @@ class SoftaculousAPI
     }
 
     /**
+     * Install WordPress on a domain
+     */
+    public function installWordPress($domain, $path = '', $siteName = 'אתר וורדפרס חדש')
+    {
+        // Generate random password and username
+        $adminPassword = $this->generatePassword(12);
+        $adminUsername = $this->generateUsername();
+        $adminEmail = $adminUsername . '@' . $domain;
+        $dbPrefix = substr(md5(time()), 0, 4);
+        
+        // Prepare installation data for Softaculous
+        $installData = [
+            'softsubmit' => '1',
+            'soft' => '26', // WordPress software ID
+            'softdomain' => $domain,
+            'softdirectory' => $path,
+            'softdb' => 'wp_' . $dbPrefix,
+            'dbusername' => 'wp_' . $dbPrefix,
+            'dbuserpass' => $this->generatePassword(16),
+            'hostname' => 'localhost',
+            'admin_username' => $adminUsername,
+            'admin_pass' => $adminPassword,
+            'admin_email' => $adminEmail,
+            'site_name' => $siteName,
+            'site_desc' => 'אתר וורדפרס',
+            'language' => 'he_IL',
+            'softproto' => 'https://',
+            'eu_auto_upgrade' => '1',
+        ];
+        
+        // Use the install action with soft=26 for WordPress
+        $result = $this->requestInstall($installData);
+        
+        if (isset($result['error'])) {
+            return $result;
+        }
+        
+        $siteUrl = 'https://' . $domain . ($path ? '/' . $path : '');
+        
+        // Check for success indicators
+        if (isset($result['done']) || isset($result['__settings']) || isset($result['setup_complete']) || isset($result['setupcontinue'])) {
+            return [
+                'success' => true,
+                'admin_url' => $siteUrl . '/wp-admin',
+                'admin_username' => $adminUsername,
+                'admin_password' => $adminPassword,
+                'site_url' => $siteUrl
+            ];
+        }
+        
+        // If we got here but no error, might still be success
+        if (!isset($result['error']) && !isset($result['iscripts'])) {
+            return [
+                'success' => true,
+                'admin_url' => $siteUrl . '/wp-admin',
+                'admin_username' => $adminUsername,
+                'admin_password' => $adminPassword,
+                'site_url' => $siteUrl,
+                'note' => 'ההתקנה בוצעה'
+            ];
+        }
+        
+        return ['error' => 'התקנה נכשלה: ' . json_encode($result)];
+    }
+    
+    /**
+     * Make install request to Softaculous
+     */
+    private function requestInstall($data)
+    {
+        if ($this->serverType === self::TYPE_DIRECTADMIN) {
+            return $this->requestInstallDirectAdmin($data);
+        }
+        
+        return $this->requestInstallCPanel($data);
+    }
+    
+    /**
+     * Install request for cPanel
+     */
+    private function requestInstallCPanel($data)
+    {
+        $protocol = $this->useSSL ? 'https' : 'http';
+        
+        $themePaths = [
+            '/frontend/jupiter/softaculous/index.live.php',
+            '/frontend/paper_lantern/softaculous/index.live.php',
+        ];
+        
+        foreach ($themePaths as $themePath) {
+            $url = "{$protocol}://{$this->hostname}:{$this->port}{$themePath}?api=json&act=software&soft=26";
+            
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            curl_setopt($ch, CURLOPT_USERPWD, $this->username . ':' . $this->password);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            
+            $response = curl_exec($ch);
+            $error = curl_error($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($error) {
+                continue;
+            }
+            
+            if ($httpCode === 200) {
+                $result = json_decode($response, true);
+                if ($result !== null) {
+                    return $result;
+                }
+            }
+        }
+        
+        return ['error' => 'Failed to connect to Softaculous'];
+    }
+    
+    /**
+     * Install request for DirectAdmin
+     */
+    private function requestInstallDirectAdmin($data)
+    {
+        $protocol = $this->useSSL ? 'https' : 'http';
+        $baseUrl = "{$protocol}://{$this->hostname}:{$this->port}";
+        
+        // Create temp cookie file
+        $cookieFile = sys_get_temp_dir() . '/softaculous_install_' . md5($this->username . time()) . '.txt';
+        
+        // Step 1: Login to DirectAdmin
+        $loginUrl = $baseUrl . '/CMD_LOGIN';
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $loginUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+            'username' => $this->username,
+            'password' => $this->password,
+            'referer' => '/CMD_PLUGINS/softaculous/index.raw'
+        ]));
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFile);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        
+        curl_exec($ch);
+        curl_close($ch);
+        
+        // Step 2: Make install request
+        $softUrl = $baseUrl . '/CMD_PLUGINS/softaculous/index.raw?api=json&act=software&soft=26';
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $softUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+        
+        @unlink($cookieFile);
+        
+        if ($error) {
+            return ['error' => 'cURL Error: ' . $error];
+        }
+        
+        $result = json_decode($response, true);
+        if ($result === null) {
+            return ['error' => 'Invalid JSON response: ' . substr($response, 0, 500)];
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * Generate random password
+     */
+    private function generatePassword($length = 12)
+    {
+        $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%';
+        $password = '';
+        for ($i = 0; $i < $length; $i++) {
+            $password .= $chars[random_int(0, strlen($chars) - 1)];
+        }
+        return $password;
+    }
+    
+    /**
+     * Generate random username (never admin)
+     */
+    private function generateUsername()
+    {
+        $prefixes = ['wp', 'user', 'site', 'web', 'mgr'];
+        $prefix = $prefixes[array_rand($prefixes)];
+        $suffix = substr(md5(time() . random_int(1000, 9999)), 0, 6);
+        return $prefix . '_' . $suffix;
+    }
+
+    /**
+     * Delete WordPress installation
+     */
+    public function deleteInstallation($insId)
+    {
+        // According to Softaculous API docs: https://www.softaculous.com/docs/api/api/#remove-an-installed-script
+        $deleteData = [
+            'removeins' => '1',
+            'remove_dir' => '1',
+            'remove_datadir' => '1', 
+            'remove_db' => '1',
+            'remove_dbuser' => '1'
+        ];
+        
+        if ($this->serverType === self::TYPE_DIRECTADMIN) {
+            $result = $this->requestRemoveDirectAdmin($insId, $deleteData);
+        } else {
+            $result = $this->requestRemoveCPanel($insId, $deleteData);
+        }
+        
+        if (isset($result['error'])) {
+            return $result;
+        }
+        
+        // Check for actual success - done key means deletion completed
+        if (isset($result['done'])) {
+            return ['success' => true, 'message' => 'ההתקנה נמחקה בהצלחה'];
+        }
+        
+        // If iscripts is present, it means we got the software list instead of deletion
+        return ['error' => 'מחיקה נכשלה: ' . json_encode($result)];
+    }
+    
+    /**
+     * Remove request for cPanel
+     */
+    private function requestRemoveCPanel($insId, $data)
+    {
+        $protocol = $this->useSSL ? 'https' : 'http';
+        
+        $themePaths = [
+            '/frontend/jupiter/softaculous/index.live.php',
+            '/frontend/paper_lantern/softaculous/index.live.php',
+        ];
+        
+        foreach ($themePaths as $themePath) {
+            // Use act=remove in URL like install uses act=software
+            $url = "{$protocol}://{$this->hostname}:{$this->port}{$themePath}?api=json&act=remove&insid=" . urlencode($insId);
+            
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+            curl_setopt($ch, CURLOPT_USERPWD, $this->username . ':' . $this->password);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            
+            $response = curl_exec($ch);
+            $error = curl_error($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($error) {
+                continue;
+            }
+            
+            if ($httpCode === 200) {
+                $result = json_decode($response, true);
+                if ($result !== null) {
+                    return $result;
+                }
+            }
+        }
+        
+        return ['error' => 'Failed to connect to Softaculous'];
+    }
+    
+    /**
+     * Remove request for DirectAdmin
+     */
+    private function requestRemoveDirectAdmin($insId, $data)
+    {
+        $protocol = $this->useSSL ? 'https' : 'http';
+        $baseUrl = "{$protocol}://{$this->hostname}:{$this->port}";
+        
+        $cookieFile = sys_get_temp_dir() . '/softaculous_remove_' . md5($this->username . time()) . '.txt';
+        
+        // Step 1: Login to DirectAdmin
+        $loginUrl = $baseUrl . '/CMD_LOGIN';
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $loginUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+            'username' => $this->username,
+            'password' => $this->password,
+            'referer' => '/CMD_PLUGINS/softaculous/index.raw'
+        ]));
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFile);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        
+        curl_exec($ch);
+        curl_close($ch);
+        
+        // Step 2: Make remove request
+        $softUrl = $baseUrl . '/CMD_PLUGINS/softaculous/index.raw?api=json&act=remove&insid=' . urlencode($insId);
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $softUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+        
+        @unlink($cookieFile);
+        
+        if ($error) {
+            return ['error' => 'cURL Error: ' . $error];
+        }
+        
+        $result = json_decode($response, true);
+        if ($result === null) {
+            return ['error' => 'Invalid JSON response: ' . substr($response, 0, 500)];
+        }
+        
+        return $result;
+    }
+
+    /**
      * Get SSO URL for WordPress installation
      */
     public function getSignOnUrl($insId)

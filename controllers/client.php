@@ -86,6 +86,9 @@ add_hook('ClientAreaProductDetailsOutput', 1, function($vars) {
         case 'softaculous_sso_activate_theme':
             handleActivateTheme($serviceId);
             break;
+        case 'softaculous_sso_install_wordpress':
+            handleInstallWordPress($serviceId);
+            break;
     }
 });
 
@@ -515,6 +518,51 @@ function handleActivateTheme($serviceId)
         }
 
         echo json_encode($result);
+    } catch (\Exception $e) {
+        echo json_encode(['error' => 'שגיאה: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+/**
+ * Install WordPress on the service domain
+ */
+function handleInstallWordPress($serviceId)
+{
+    header('Content-Type: application/json');
+
+    try {
+        $serverDetails = ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            echo json_encode(['error' => 'לא ניתן לקבל פרטי שרת']);
+            exit;
+        }
+
+        $port = ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+
+        $api = new SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+
+        $result = $api->installWordPress($serverDetails['domain']);
+
+        if (isset($result['error'])) {
+            echo json_encode(['error' => $result['error']]);
+            exit;
+        }
+
+        echo json_encode([
+            'success' => true,
+            'admin_url' => $result['admin_url'] ?? 'https://' . $serverDetails['domain'] . '/wp-admin',
+            'admin_username' => $result['admin_username'] ?? '',
+            'admin_password' => $result['admin_password'] ?? ''
+        ]);
     } catch (\Exception $e) {
         echo json_encode(['error' => 'שגיאה: ' . $e->getMessage()]);
     }
