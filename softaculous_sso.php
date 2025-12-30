@@ -96,6 +96,30 @@ function softaculous_sso_output($vars)
         exit;
     }
     
+    if ($action === 'admin_get_plugins') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_get_plugins());
+        exit;
+    }
+    
+    if ($action === 'admin_get_themes') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_get_themes());
+        exit;
+    }
+    
+    if ($action === 'admin_toggle_plugin') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_toggle_plugin());
+        exit;
+    }
+    
+    if ($action === 'admin_activate_theme') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_activate_theme());
+        exit;
+    }
+    
     echo '<h2>Softaculous WordPress SSO</h2>';
     echo '<p>המודול פעיל. הלקוחות יכולים לראות את אתרי הוורדפרס שלהם בעמוד פרטי המוצר.</p>';
 }
@@ -378,6 +402,173 @@ function softaculous_sso_admin_delete_installation()
         );
         
         $result = $api->deleteInstallation($insId);
+        
+        return $result;
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Get plugins for admin
+ */
+function softaculous_sso_admin_get_plugins()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $serviceId = $_GET['service_id'] ?? '';
+    $insId = $_GET['insid'] ?? '';
+    
+    if (empty($serviceId) || empty($insId)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        $result = $api->getPlugins($insId);
+        
+        return $result;
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Get themes for admin
+ */
+function softaculous_sso_admin_get_themes()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $serviceId = $_GET['service_id'] ?? '';
+    $insId = $_GET['insid'] ?? '';
+    
+    if (empty($serviceId) || empty($insId)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        $result = $api->getThemes($insId);
+        
+        return $result;
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Toggle plugin for admin
+ */
+function softaculous_sso_admin_toggle_plugin()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $serviceId = $_GET['service_id'] ?? '';
+    $insId = $_GET['insid'] ?? '';
+    $slug = $_GET['slug'] ?? '';
+    $pluginAction = $_GET['plugin_action'] ?? '';
+    
+    if (empty($serviceId) || empty($insId) || empty($slug) || empty($pluginAction)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        $result = $api->togglePlugin($insId, $slug, $pluginAction);
+        
+        return $result;
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Activate theme for admin
+ */
+function softaculous_sso_admin_activate_theme()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $serviceId = $_GET['service_id'] ?? '';
+    $insId = $_GET['insid'] ?? '';
+    $slug = $_GET['slug'] ?? '';
+    
+    if (empty($serviceId) || empty($insId) || empty($slug)) {
+        return ['error' => 'חסרים פרטים נדרשים'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        $result = $api->activateTheme($insId, $slug);
         
         return $result;
     } catch (\Exception $e) {
