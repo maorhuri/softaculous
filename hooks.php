@@ -1004,7 +1004,8 @@ function clientInstallWordPress() {
     .then(response => response.json())
     .then(data => {
         if (data.error) {
-            document.querySelector('#install-modal .softaculous-modal-body').innerHTML = '<div class="softaculous-sso-error"><i class="fas fa-times-circle"></i><br>' + data.error + '</div>';
+            var errorMsg = (typeof data.error === 'object') ? JSON.stringify(data.error) : data.error;
+            document.querySelector('#install-modal .softaculous-modal-body').innerHTML = '<div class="softaculous-sso-error"><i class="fas fa-times-circle"></i><br>' + errorMsg + '</div>';
             return;
         }
         

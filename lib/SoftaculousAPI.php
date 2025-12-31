@@ -319,16 +319,17 @@ class SoftaculousAPI
         $adminPassword = $this->generatePassword(12);
         $adminUsername = $this->generateUsername();
         $adminEmail = $adminUsername . '@' . $domain;
-        $dbPrefix = substr(md5(time()), 0, 4);
+        $dbSuffix = substr(md5(time()), 0, 5);
         
         // Prepare installation data for Softaculous
+        // Note: Database name max 7 chars, only alphanumeric
         $installData = [
             'softsubmit' => '1',
             'soft' => '26', // WordPress software ID
             'softdomain' => $domain,
             'softdirectory' => $path,
-            'softdb' => 'wp_' . $dbPrefix,
-            'dbusername' => 'wp_' . $dbPrefix,
+            'softdb' => 'wp' . $dbSuffix,
+            'dbusername' => 'wp' . $dbSuffix,
             'dbuserpass' => $this->generatePassword(16),
             'hostname' => 'localhost',
             'admin_username' => $adminUsername,
@@ -343,6 +344,9 @@ class SoftaculousAPI
         
         // Use the install action with soft=26 for WordPress
         $result = $this->requestInstall($installData);
+        
+        // DEBUG: Log the raw result to understand what Softaculous returns
+        error_log('Softaculous installWordPress result: ' . print_r($result, true));
         
         if (isset($result['error'])) {
             return $result;
@@ -373,7 +377,35 @@ class SoftaculousAPI
             ];
         }
         
-        return ['error' => 'התקנה נכשלה: ' . json_encode($result)];
+        // Extract error message from Softaculous response
+        $errorMsg = 'התקנה נכשלה';
+        if (isset($result['error']) && is_string($result['error'])) {
+            $errorMsg = $result['error'];
+        } elseif (isset($result['e']) && is_array($result['e'])) {
+            // Softaculous returns errors in 'e' array - flatten if needed
+            $errors = [];
+            foreach ($result['e'] as $err) {
+                if (is_string($err)) {
+                    $errors[] = $err;
+                } elseif (is_array($err)) {
+                    $errors[] = implode(', ', array_map(function($v) {
+                        return is_string($v) ? $v : json_encode($v);
+                    }, $err));
+                } else {
+                    $errors[] = json_encode($err);
+                }
+            }
+            $errorMsg = implode(', ', $errors);
+        } elseif (isset($result['error_msg'])) {
+            $errorMsg = is_string($result['error_msg']) ? $result['error_msg'] : json_encode($result['error_msg']);
+        } elseif (isset($result['emsg'])) {
+            $errorMsg = is_string($result['emsg']) ? $result['emsg'] : json_encode($result['emsg']);
+        } elseif (isset($result['iscripts'])) {
+            // Got software list instead of install result - installation failed
+            $errorMsg = 'התקנה נכשלה - לא התקבלה תגובה מהשרת';
+        }
+        
+        return ['error' => $errorMsg];
     }
     
     /**
@@ -556,8 +588,17 @@ class SoftaculousAPI
             return ['success' => true, 'message' => 'ההתקנה נמחקה בהצלחה'];
         }
         
-        // If iscripts is present, it means we got the software list instead of deletion
-        return ['error' => 'מחיקה נכשלה: ' . json_encode($result)];
+        // Extract error message from Softaculous response
+        $errorMsg = 'מחיקה נכשלה';
+        if (isset($result['e']) && is_array($result['e'])) {
+            $errorMsg = implode(', ', $result['e']);
+        } elseif (isset($result['error_msg'])) {
+            $errorMsg = $result['error_msg'];
+        } elseif (isset($result['emsg'])) {
+            $errorMsg = $result['emsg'];
+        }
+        
+        return ['error' => $errorMsg];
     }
     
     /**

@@ -354,7 +354,12 @@ function softaculous_sso_admin_install_wordpress()
         $result = $api->installWordPress($serverDetails['domain']);
         
         if (isset($result['error'])) {
-            return ['error' => $result['error']];
+            // Ensure error is a string
+            $errorMsg = $result['error'];
+            if (!is_string($errorMsg)) {
+                $errorMsg = json_encode($errorMsg);
+            }
+            return ['error' => $errorMsg];
         }
         
         return [

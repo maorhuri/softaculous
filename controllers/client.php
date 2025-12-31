@@ -553,7 +553,12 @@ function handleInstallWordPress($serviceId)
         $result = $api->installWordPress($serverDetails['domain']);
 
         if (isset($result['error'])) {
-            echo json_encode(['error' => $result['error']]);
+            // Ensure error is a string
+            $errorMsg = $result['error'];
+            if (!is_string($errorMsg)) {
+                $errorMsg = json_encode($errorMsg);
+            }
+            echo json_encode(['error' => $errorMsg]);
             exit;
         }
 
