@@ -226,9 +226,54 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
     font-size: 16px;
     font-weight: 600;
     text-align: center;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
-.softaculous-sso-widget .widget-header i {
+.softaculous-sso-widget .widget-header i.fa-wordpress {
     margin-left: 8px;
+}
+.btn-sso-refresh {
+    position: absolute;
+    left: 15px;
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    font-size: 13px;
+}
+.btn-sso-refresh:hover {
+    background: rgba(255,255,255,0.3);
+}
+.btn-sso-refresh i {
+    transition: transform 0.3s;
+}
+.btn-sso-refresh:hover i {
+    transform: rotate(180deg);
+}
+.btn-sso-refresh.spinning {
+    pointer-events: none;
+    opacity: 0.8;
+}
+.btn-sso-refresh.spinning i {
+    animation: spin 1s linear infinite;
+}
+.btn-sso-refresh.spinning span {
+    display: none;
+}
+.btn-sso-refresh.spinning::after {
+    content: 'סורק...';
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 .softaculous-sso-widget .widget-body {
     padding: 0;
@@ -572,6 +617,62 @@ add_hook('ClientAreaHeadOutput', 1, function($vars) {
     cursor: not-allowed;
 }
 
+/* Installations Search Box */
+.wp-installations-search {
+    padding: 15px 20px;
+    border-bottom: 1px solid #eee;
+}
+.wp-installations-search input {
+    width: 100%;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    text-align: right;
+}
+.wp-installations-search input:focus {
+    outline: none;
+    border-color: #bd417b;
+}
+
+/* Installations Pagination */
+.wp-installations-pagination {
+    display: flex;
+    justify-content: center;
+    gap: 5px;
+    padding: 15px 20px;
+    border-top: 1px solid #eee;
+}
+.wp-installations-pagination button {
+    padding: 8px 14px;
+    border: 1px solid #ddd;
+    background: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.wp-installations-pagination button:hover {
+    background: #f5f5f5;
+}
+.wp-installations-pagination button.active {
+    background: #bd417b;
+    color: #fff;
+    border-color: #bd417b;
+}
+.wp-installations-pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Installations Count */
+.wp-installations-count {
+    text-align: center;
+    padding: 10px;
+    color: #666;
+    font-size: 13px;
+    border-top: 1px solid #eee;
+}
+
 /* Actions Menu */
 .actions-menu {
     display: flex;
@@ -659,6 +760,10 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="widget-header">
                 <i class="fab fa-wordpress"></i>
                 אתרי וורדפרס
+                <button class="btn-sso-refresh" onclick="scanAndRefreshInstallations()" title="סריקה ורענון רשימת אתרים">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>רענון אתרים</span>
+                </button>
             </div>
             <div class="widget-body">
                 <div class="softaculous-sso-loading">
@@ -690,6 +795,46 @@ document.addEventListener('DOMContentLoaded', function() {
     loadWordPressInstallations();
 });
 
+function scanAndRefreshInstallations() {
+    var serviceId = {$serviceId};
+    var btn = document.querySelector('.btn-sso-refresh');
+    var widgetBody = document.querySelector('#softaculous-sso-widget .widget-body');
+    
+    // Add spinning animation to button
+    if (btn) btn.classList.add('spinning');
+    
+    // Show loading overlay in widget body
+    widgetBody.innerHTML = '<div class="softaculous-sso-loading"><i class="fas fa-spinner fa-spin"></i><br>מרענן את רשימת האתרים...</div>';
+    
+    // First scan for new installations
+    fetch('clientarea.php?action=productdetails&id=' + serviceId + '&modop=custom&a=softaculous_sso_scan_installations&token={$token}')
+    .then(response => response.json())
+    .then(data => {
+        // Update loading message
+        widgetBody.innerHTML = '<div class="softaculous-sso-loading"><i class="fas fa-spinner fa-spin"></i><br>טוען רשימת אתרים...</div>';
+        
+        // After scan, reload the installations list
+        loadWordPressInstallations();
+        
+        // Remove spinning animation after a delay
+        setTimeout(function() {
+            if (btn) btn.classList.remove('spinning');
+        }, 500);
+    })
+    .catch(error => {
+        if (btn) btn.classList.remove('spinning');
+        console.error('Scan error:', error);
+        // Still try to reload
+        loadWordPressInstallations();
+    });
+}
+
+// Global state for installations pagination
+window._wpInstallations = [];
+window._wpInstallationsPage = 1;
+window._wpInstallationsPerPage = 5;
+window._wpInstallationsSearch = '';
+
 function loadWordPressInstallations() {
     var serviceId = {$serviceId};
     
@@ -718,35 +863,11 @@ function loadWordPressInstallations() {
             return;
         }
 
-        var tableHtml = `
-            <table class="softaculous-sso-table">
-                <thead>
-                    <tr>
-                        <th>כתובת האתר</th>
-                        <th>גירסת וורדפרס</th>
-                        <th>פעולות</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        data.installations.forEach(function(install) {
-            var versionClass = 'wp-version-badge';
-            var updateWarning = '';
-            
-            tableHtml += '<tr>';
-            tableHtml += '<td><a href="' + install.softurl + '" target="_blank">' + install.softurl + '</a></td>';
-            tableHtml += '<td><span class="' + versionClass + '">' + install.softversion + '</span>' + updateWarning + '</td>';
-            tableHtml += '<td class="softaculous-sso-actions">';
-            tableHtml += '<a href="' + install.softurl + '" target="_blank" class="btn-sso"><i class="fas fa-external-link-alt"></i> צפייה</a>';
-            tableHtml += '<a href="clientarea.php?action=productdetails&id=' + serviceId + '&modop=custom&a=softaculous_sso_login&insid=' + encodeURIComponent(install.insid) + '&token={$token}" class="btn-sso" target="_blank"><i class="fas fa-sign-in-alt"></i> התחברות לאתר</a>';
-            tableHtml += '<button class="btn-sso" onclick="openActionsModal(\'' + install.insid + '\', \'' + install.softurl + '\')"><i class="fas fa-cog"></i> פעולות ניהול</button>';
-            tableHtml += '</td>';
-            tableHtml += '</tr>';
-        });
-
-        tableHtml += '</tbody></table>';
-        widgetBody.innerHTML = tableHtml;
+        // Store installations globally for pagination/search
+        window._wpInstallations = data.installations;
+        window._wpInstallationsPage = 1;
+        
+        renderInstallationsTable();
         
         // Check for updates for each installation
         checkForUpdates(data.installations);
@@ -756,6 +877,92 @@ function loadWordPressInstallations() {
         widgetBody.innerHTML = '<div class="softaculous-sso-error"><i class="fas fa-exclamation-circle"></i> שגיאה בטעינת הנתונים</div>';
         console.error('Softaculous SSO Error:', error);
     });
+}
+
+function renderInstallationsTable() {
+    var serviceId = {$serviceId};
+    var installations = window._wpInstallations || [];
+    var page = window._wpInstallationsPage || 1;
+    var perPage = window._wpInstallationsPerPage || 5;
+    var search = (window._wpInstallationsSearch || '').toLowerCase();
+    
+    var widgetBody = document.querySelector('#softaculous-sso-widget .widget-body');
+    
+    // Filter by search
+    var filtered = installations.filter(function(install) {
+        if (!search) return true;
+        var url = (install.softurl || '').toLowerCase();
+        return url.indexOf(search) !== -1;
+    });
+    
+    // Pagination
+    var totalPages = Math.ceil(filtered.length / perPage);
+    var start = (page - 1) * perPage;
+    var pageInstallations = filtered.slice(start, start + perPage);
+    
+    // Build HTML
+    var html = '';
+    
+    // Search box
+    html += '<div class="wp-installations-search"><input type="text" placeholder="חיפוש לפי כתובת..." value="' + (window._wpInstallationsSearch || '') + '" oninput="searchInstallations(this.value)"></div>';
+    
+    html += '<table class="softaculous-sso-table"><thead><tr><th>כתובת האתר</th><th>גירסת וורדפרס</th><th>פעולות</th></tr></thead><tbody>';
+    
+    pageInstallations.forEach(function(install) {
+        var versionClass = 'wp-version-badge';
+        html += '<tr>';
+        html += '<td><a href="' + install.softurl + '" target="_blank">' + install.softurl + '</a></td>';
+        html += '<td><span class="' + versionClass + '">' + install.softversion + '</span></td>';
+        html += '<td class="softaculous-sso-actions">';
+        html += '<a href="' + install.softurl + '" target="_blank" class="btn-sso"><i class="fas fa-external-link-alt"></i> צפייה</a>';
+        html += '<a href="clientarea.php?action=productdetails&id=' + serviceId + '&modop=custom&a=softaculous_sso_login&insid=' + encodeURIComponent(install.insid) + '&token={$token}" class="btn-sso" target="_blank"><i class="fas fa-sign-in-alt"></i> התחברות לאתר</a>';
+        html += '<button class="btn-sso" onclick="openActionsModal(\\'' + install.insid + '\\', \\'' + install.softurl + '\\')"><i class="fas fa-cog"></i> פעולות ניהול</button>';
+        html += '</td>';
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table>';
+    
+    // Pagination controls
+    if (totalPages > 1) {
+        html += '<div class="wp-installations-pagination">';
+        html += '<button ' + (page <= 1 ? 'disabled' : '') + ' onclick="goToInstallationsPage(' + (page - 1) + ')">הקודם</button>';
+        for (var i = 1; i <= totalPages; i++) {
+            html += '<button class="' + (i === page ? 'active' : '') + '" onclick="goToInstallationsPage(' + i + ')">' + i + '</button>';
+        }
+        html += '<button ' + (page >= totalPages ? 'disabled' : '') + ' onclick="goToInstallationsPage(' + (page + 1) + ')">הבא</button>';
+        html += '</div>';
+    }
+    
+    // Show total count
+    html += '<div class="wp-installations-count">סה"כ: ' + filtered.length + ' אתרים</div>';
+    
+    widgetBody.innerHTML = html;
+}
+
+function searchInstallations(val) {
+    window._wpInstallationsSearch = val;
+    window._wpInstallationsPage = 1;
+    
+    // Save cursor position
+    var input = document.querySelector('.wp-installations-search input');
+    var cursorPos = input ? input.selectionStart : val.length;
+    
+    renderInstallationsTable();
+    
+    // Restore focus and cursor position
+    setTimeout(function() {
+        var newInput = document.querySelector('.wp-installations-search input');
+        if (newInput) {
+            newInput.focus();
+            newInput.setSelectionRange(cursorPos, cursorPos);
+        }
+    }, 0);
+}
+
+function goToInstallationsPage(p) {
+    window._wpInstallationsPage = p;
+    renderInstallationsTable();
 }
 
 // Check for updates
@@ -1669,6 +1876,38 @@ add_hook('AdminAreaHeaderOutput', 1, function($vars) {
     padding: 0;
     line-height: 1;
 }
+.btn-admin-refresh {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    font-size: 13px;
+}
+.btn-admin-refresh:hover {
+    background: rgba(255,255,255,0.3);
+}
+.btn-admin-refresh i {
+    transition: transform 0.3s;
+}
+.btn-admin-refresh:hover i {
+    transform: rotate(180deg);
+}
+.btn-admin-refresh.spinning {
+    pointer-events: none;
+    opacity: 0.8;
+}
+.btn-admin-refresh.spinning i {
+    animation: spin 1s linear infinite;
+}
+.btn-admin-refresh.spinning span {
+    display: none;
+}
 .sso-admin-modal-body {
     padding: 20px;
     max-height: 60vh;
@@ -1971,6 +2210,7 @@ function openAdminSSOModal(userId) {
     var modalHtml = '<div class="sso-admin-modal-overlay" id="admin-sso-modal">' +
         '<div class="sso-admin-modal">' +
             '<div class="sso-admin-modal-header">' +
+                '<button class="btn-admin-refresh" onclick="adminScanAndRefresh(' + userId + ')" title="רענון רשימת אתרים"><i class="fas fa-sync-alt"></i> רענון אתרים</button>' +
                 '<h3><i class="fab fa-wordpress"></i> התחברות לאתרי וורדפרס</h3>' +
                 '<button class="sso-admin-modal-close" onclick="closeAdminSSOModal()">&times;</button>' +
             '</div>' +
@@ -2129,6 +2369,61 @@ function toggleAdminShowAll() {
 function closeAdminSSOModal() {
     var modal = document.getElementById('admin-sso-modal');
     if (modal) modal.remove();
+}
+
+function adminScanAndRefresh(userId) {
+    var btn = document.querySelector('.btn-admin-refresh');
+    var modalBody = document.getElementById('admin-sso-modal-body');
+    var services = window._adminServices || [];
+    
+    // Add spinning animation to button
+    if (btn) btn.classList.add('spinning');
+    
+    // Show loading message
+    modalBody.innerHTML = '<div class="sso-admin-loading"><i class="fas fa-spinner fa-spin"></i> מרענן את רשימת האתרים...</div>';
+    
+    // Scan all services for this user
+    var scanPromises = services.map(function(service) {
+        return fetch('addonmodules.php?module=softaculous_sso&action=admin_scan_installations&service_id=' + service.id)
+            .then(response => response.json())
+            .catch(error => ({ error: error.message }));
+    });
+    
+    // Wait for all scans to complete, then reload
+    Promise.all(scanPromises).then(function() {
+        // Reload installations
+        fetch('addonmodules.php?module=softaculous_sso&action=admin_get_all_installations&user_id=' + userId)
+        .then(response => response.json())
+        .then(data => {
+            if (btn) btn.classList.remove('spinning');
+            
+            if (data.error) {
+                modalBody.innerHTML = '<div class="sso-admin-error">' + data.error + '</div>';
+                return;
+            }
+            
+            var installations = data.installations || [];
+            window._adminInstallations = installations;
+            window._adminServices = data.services || [];
+            window._adminSearch = '';
+            window._adminPage = 1;
+            
+            if (installations.length === 0) {
+                var emptyHtml = '<div class="sso-admin-empty">';
+                emptyHtml += '<i class="fab fa-wordpress" style="font-size:48px;margin-bottom:15px;display:block;opacity:0.3;"></i>';
+                emptyHtml += 'לא נמצאו התקנות וורדפרס';
+                emptyHtml += '</div>';
+                modalBody.innerHTML = emptyHtml;
+                return;
+            }
+            
+            renderAdminInstallationsTable();
+        })
+        .catch(error => {
+            if (btn) btn.classList.remove('spinning');
+            modalBody.innerHTML = '<div class="sso-admin-error">שגיאה בטעינת האתרים</div>';
+        });
+    });
 }
 
 function adminSSO(serviceId, insId) {

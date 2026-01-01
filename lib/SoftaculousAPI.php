@@ -311,6 +311,22 @@ class SoftaculousAPI
     }
 
     /**
+     * Scan for existing installations (import manually installed scripts)
+     * This is equivalent to the "Scan" button in Softaculous
+     */
+    public function scanInstallations()
+    {
+        // The scan/import action in Softaculous
+        $result = $this->request('import');
+        
+        if (isset($result['error'])) {
+            return $result;
+        }
+        
+        return ['success' => true, 'message' => 'הסריקה הושלמה בהצלחה'];
+    }
+
+    /**
      * Install WordPress on a domain
      */
     public function installWordPress($domain, $path = '', $siteName = 'אתר וורדפרס חדש')

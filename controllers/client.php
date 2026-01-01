@@ -89,6 +89,9 @@ add_hook('ClientAreaProductDetailsOutput', 1, function($vars) {
         case 'softaculous_sso_install_wordpress':
             handleInstallWordPress($serviceId);
             break;
+        case 'softaculous_sso_scan_installations':
+            handleScanInstallations($serviceId);
+            break;
     }
 });
 
@@ -568,6 +571,41 @@ function handleInstallWordPress($serviceId)
             'admin_username' => $result['admin_username'] ?? '',
             'admin_password' => $result['admin_password'] ?? ''
         ]);
+    } catch (\Exception $e) {
+        echo json_encode(['error' => 'שגיאה: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+/**
+ * Scan for existing WordPress installations
+ */
+function handleScanInstallations($serviceId)
+{
+    header('Content-Type: application/json');
+
+    try {
+        $serverDetails = ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            echo json_encode(['error' => 'לא ניתן לקבל פרטי שרת']);
+            exit;
+        }
+
+        $port = ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+
+        $api = new SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+
+        $result = $api->scanInstallations();
+
+        echo json_encode($result);
     } catch (\Exception $e) {
         echo json_encode(['error' => 'שגיאה: ' . $e->getMessage()]);
     }

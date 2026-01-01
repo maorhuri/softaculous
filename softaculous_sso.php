@@ -120,6 +120,12 @@ function softaculous_sso_output($vars)
         exit;
     }
     
+    if ($action === 'admin_scan_installations') {
+        header('Content-Type: application/json');
+        echo json_encode(softaculous_sso_admin_scan_installations());
+        exit;
+    }
+    
     echo '<h2>Softaculous WordPress SSO</h2>';
     echo '<p>המודול פעיל. הלקוחות יכולים לראות את אתרי הוורדפרס שלהם בעמוד פרטי המוצר.</p>';
 }
@@ -368,6 +374,46 @@ function softaculous_sso_admin_install_wordpress()
             'admin_username' => $result['admin_username'] ?? 'admin',
             'admin_password' => $result['admin_password'] ?? ''
         ];
+    } catch (\Exception $e) {
+        return ['error' => 'שגיאה: ' . $e->getMessage()];
+    }
+}
+
+/**
+ * Scan for new installations (admin)
+ */
+function softaculous_sso_admin_scan_installations()
+{
+    require_once __DIR__ . '/lib/SoftaculousAPI.php';
+    require_once __DIR__ . '/lib/ServiceHelper.php';
+    
+    $serviceId = $_GET['service_id'] ?? '';
+    
+    if (empty($serviceId)) {
+        return ['error' => 'חסר מזהה שירות'];
+    }
+    
+    try {
+        $serverDetails = \SoftaculousSso\ServiceHelper::getServerDetails($serviceId);
+        
+        if (!$serverDetails) {
+            return ['error' => 'לא ניתן לקבל פרטי שרת'];
+        }
+        
+        $port = \SoftaculousSso\ServiceHelper::getPort($serverDetails['server_type'], $serverDetails);
+        
+        $api = new \SoftaculousSso\SoftaculousAPI(
+            $serverDetails['server_type'],
+            $serverDetails['hostname'],
+            $port,
+            $serverDetails['username'],
+            $serverDetails['password'],
+            $serverDetails['secure']
+        );
+        
+        $result = $api->scanInstallations();
+        
+        return $result;
     } catch (\Exception $e) {
         return ['error' => 'שגיאה: ' . $e->getMessage()];
     }
