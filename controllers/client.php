@@ -115,13 +115,10 @@ function handleGetInstallations($serviceId)
         // Debug info for troubleshooting
         $debugInfo = [
             'server_type' => $serverDetails['server_type'],
-            'server_module' => $serverDetails['server_module'],
             'hostname' => $serverDetails['hostname'],
             'port' => $port,
             'username' => $serverDetails['username'],
             'secure' => $serverDetails['secure'],
-            'password_length' => strlen($serverDetails['password']),
-            'password_empty' => empty($serverDetails['password']),
         ];
 
         $api = new SoftaculousAPI(

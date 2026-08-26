@@ -76,18 +76,139 @@ class SoftaculousAPI
 
     /**
      * Make API request for cPanel
-     * Try multiple theme paths as cPanel themes can vary
+     * Uses session-based authentication like DirectAdmin
      */
     private function requestCPanel($action, $params = [])
     {
         $protocol = $this->useSSL ? 'https' : 'http';
+        $baseUrl = "{$protocol}://{$this->hostname}:{$this->port}";
         
-        // Try different cPanel theme paths
+        // Create unique cookie file for this session
+        $cookieFile = sys_get_temp_dir() . '/softaculous_cp_' . md5($this->username . $this->hostname . time() . rand()) . '.txt';
+        
+        // Step 1: Login to cPanel and get session
+        $loginUrl = $baseUrl . '/login/?login_only=1';
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $loginUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
+            'user' => $this->username,
+            'pass' => $this->password,
+        ]));
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFile);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        
+        $loginResponse = curl_exec($ch);
+        $loginError = curl_error($ch);
+        $loginHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        if ($loginError) {
+            @unlink($cookieFile);
+            return ['error' => 'cPanel Login cURL Error: ' . $loginError];
+        }
+        
+        // Parse login response to get session URL
+        $sessionUrl = null;
+        
+        // Try to parse JSON response (cPanel returns JSON on login_only=1)
+        $headerSize = strpos($loginResponse, "\r\n\r\n");
+        $body = substr($loginResponse, $headerSize + 4);
+        $loginData = json_decode($body, true);
+        
+        if (isset($loginData['security_token'])) {
+            $sessionUrl = $baseUrl . $loginData['security_token'];
+        } elseif (isset($loginData['redirect'])) {
+            $sessionUrl = $baseUrl . $loginData['redirect'];
+        }
+        
+        // If JSON parsing failed, try to extract from headers
+        if (!$sessionUrl) {
+            if (preg_match('/Location:\s*(.+?)\r?\n/i', $loginResponse, $matches)) {
+                $location = trim($matches[1]);
+                if (strpos($location, 'http') === 0) {
+                    $sessionUrl = $location;
+                } else {
+                    $sessionUrl = $baseUrl . $location;
+                }
+            }
+        }
+        
+        // Extract cpsess token from session URL or cookies
+        $cpsessToken = '';
+        if ($sessionUrl && preg_match('/cpsess([a-zA-Z0-9]+)/', $sessionUrl, $matches)) {
+            $cpsessToken = '/cpsess' . $matches[1];
+        }
+        
+        // If we still don't have a session, check for login failure
+        if (!$cpsessToken) {
+            // Check if login failed
+            if (isset($loginData['status']) && $loginData['status'] == 0) {
+                @unlink($cookieFile);
+                return ['error' => 'cPanel login failed: ' . ($loginData['message'] ?? 'Invalid credentials')];
+            }
+            
+            // Try without session (basic auth fallback)
+            @unlink($cookieFile);
+            return $this->requestCPanelBasicAuth($action, $params);
+        }
+        
+        // Step 2: Access Softaculous with session
+        $themePaths = [
+            $cpsessToken . '/frontend/jupiter/softaculous/index.live.php',
+            $cpsessToken . '/frontend/paper_lantern/softaculous/index.live.php',
+        ];
+        
+        foreach ($themePaths as $themePath) {
+            $softUrl = $baseUrl . $themePath . '?api=json&act=' . $action;
+            
+            foreach ($params as $key => $value) {
+                $softUrl .= '&' . urlencode($key) . '=' . urlencode($value);
+            }
+            
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $softUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+            
+            $result = $this->executeAndParse($ch, $action);
+            
+            // If we got a valid response (not 404), return it
+            if (!isset($result['error']) || strpos($result['error'], '404') === false) {
+                @unlink($cookieFile);
+                return $result;
+            }
+        }
+        
+        // Cleanup cookie file
+        @unlink($cookieFile);
+        
+        return ['error' => 'Could not connect to Softaculous on cPanel'];
+    }
+    
+    /**
+     * Fallback: Basic Auth for older cPanel versions
+     */
+    private function requestCPanelBasicAuth($action, $params = [])
+    {
+        $protocol = $this->useSSL ? 'https' : 'http';
+        
         $themePaths = [
             '/frontend/jupiter/softaculous/index.live.php',
             '/frontend/paper_lantern/softaculous/index.live.php',
-            '/cpsess0/frontend/jupiter/softaculous/index.live.php',
-            '/cpsess0/frontend/paper_lantern/softaculous/index.live.php',
         ];
         
         foreach ($themePaths as $themePath) {
@@ -111,13 +232,11 @@ class SoftaculousAPI
 
             $result = $this->executeAndParse($ch, $action);
             
-            // If we got a valid response (not 404), return it
             if (!isset($result['error']) || strpos($result['error'], '404') === false) {
                 return $result;
             }
         }
         
-        // If all paths failed, return the last error
         return ['error' => 'Could not connect to Softaculous on cPanel - tried multiple theme paths'];
     }
 

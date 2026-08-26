@@ -4,7 +4,7 @@
  * Supports cPanel and DirectAdmin
  * 
  * @author MVN
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 if (!defined("WHMCS")) {
@@ -18,7 +18,7 @@ function softaculous_sso_config()
     return [
         'name' => 'Softaculous WordPress SSO',
         'description' => 'התחברות בקליק לאתרי וורדפרס דרך Softaculous',
-        'version' => '1.0.0',
+        'version' => '1.1.0',
         'author' => 'MVN',
         'fields' => [
             'default_port_cpanel' => [

@@ -87,20 +87,44 @@ class ServiceHelper
         }
 
         try {
-            // Try using WHMCS decrypt function directly
-            if (function_exists('decrypt')) {
-                return decrypt($encryptedPassword);
+            // Method 1: Try WHMCS 8.x Crypt class
+            if (class_exists('\WHMCS\Security\Encryption\Aes')) {
+                try {
+                    $aes = new \WHMCS\Security\Encryption\Aes();
+                    $decrypted = $aes->decrypt($encryptedPassword);
+                    if (!empty($decrypted)) {
+                        return $decrypted;
+                    }
+                } catch (\Exception $e) {
+                    // Continue to next method
+                }
             }
             
-            // Fallback to localAPI
+            // Method 2: Try using WHMCS decrypt function directly
+            if (function_exists('decrypt')) {
+                $decrypted = decrypt($encryptedPassword);
+                if (!empty($decrypted)) {
+                    return $decrypted;
+                }
+            }
+            
+            // Method 3: Fallback to localAPI with password2
             $result = localAPI('DecryptPassword', ['password2' => $encryptedPassword]);
-            if (isset($result['password'])) {
+            if (isset($result['password']) && !empty($result['password'])) {
                 return $result['password'];
             }
             
-            return '';
+            // Method 4: Try localAPI with different parameter name
+            $result = localAPI('DecryptPassword', ['password' => $encryptedPassword]);
+            if (isset($result['password']) && !empty($result['password'])) {
+                return $result['password'];
+            }
+            
+            // Method 5: Return as-is if nothing worked (maybe it's not encrypted)
+            return $encryptedPassword;
         } catch (\Exception $e) {
-            return '';
+            // Last resort - return as-is
+            return $encryptedPassword;
         }
     }
 
