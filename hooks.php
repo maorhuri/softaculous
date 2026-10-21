@@ -175,6 +175,24 @@ require_once __DIR__ . '/lib/ServiceHelper.php';
 require_once __DIR__ . '/controllers/client.php';
 
 /**
+ * WordPress (Softaculous) is only on shared hosting: cPanel / DirectAdmin.
+ * Private servers and other products get no WordPress widget.
+ */
+if (!function_exists('softaculous_sso_is_shared_hosting')) {
+    function softaculous_sso_is_shared_hosting($service)
+    {
+        $type = '';
+        if (!empty($service->server)) {
+            $type = (string) Capsule::table('tblservers')->where('id', $service->server)->value('type');
+        }
+        if ($type === '' && !empty($service->packageid)) {
+            $type = (string) Capsule::table('tblproducts')->where('id', $service->packageid)->value('servertype');
+        }
+        return in_array(strtolower($type), ['cpanel', 'directadmin'], true);
+    }
+}
+
+/**
  * Add WordPress SSO widget to client area product details
  */
 add_hook('ClientAreaPageProductDetails', 1, function($vars) {
@@ -189,7 +207,7 @@ add_hook('ClientAreaPageProductDetails', 1, function($vars) {
         ->where('id', $serviceId)
         ->first();
 
-    if (!$service || $service->domainstatus !== 'Active') {
+    if (!$service || $service->domainstatus !== 'Active' || !softaculous_sso_is_shared_hosting($service)) {
         return [];
     }
 
@@ -731,7 +749,7 @@ add_hook('ClientAreaFooterOutput', 1, function($vars) {
         ->where('id', $serviceId)
         ->first();
 
-    if (!$service || $service->domainstatus !== 'Active') {
+    if (!$service || $service->domainstatus !== 'Active' || !softaculous_sso_is_shared_hosting($service)) {
         return '';
     }
 
