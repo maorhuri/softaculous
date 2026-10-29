@@ -193,6 +193,25 @@ if (!function_exists('softaculous_sso_is_shared_hosting')) {
 }
 
 /**
+ * A DirectAdmin reseller's service page in the client area theme lists the WordPress sites of every
+ * account under the reseller, the reseller's own included (MvnReseller in the theme's
+ * core/hooks/mvn-reseller.php). Where that list shows, this widget would repeat the reseller's own
+ * sites, so it stays out (owner, 2026-10-29). Without the theme's class, or on any error, the
+ * widget shows as before.
+ */
+if (!function_exists('softaculous_sso_theme_lists_sites')) {
+    function softaculous_sso_theme_lists_sites($serviceId)
+    {
+        try {
+            return class_exists('MvnReseller') && is_callable(['MvnReseller', 'context'])
+                && MvnReseller::context((int) $serviceId) !== null;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+}
+
+/**
  * Add WordPress SSO widget to client area product details
  */
 add_hook('ClientAreaPageProductDetails', 1, function($vars) {
@@ -207,7 +226,8 @@ add_hook('ClientAreaPageProductDetails', 1, function($vars) {
         ->where('id', $serviceId)
         ->first();
 
-    if (!$service || $service->domainstatus !== 'Active' || !softaculous_sso_is_shared_hosting($service)) {
+    if (!$service || $service->domainstatus !== 'Active' || !softaculous_sso_is_shared_hosting($service)
+        || softaculous_sso_theme_lists_sites($serviceId)) {
         return [];
     }
 
@@ -749,7 +769,8 @@ add_hook('ClientAreaFooterOutput', 1, function($vars) {
         ->where('id', $serviceId)
         ->first();
 
-    if (!$service || $service->domainstatus !== 'Active' || !softaculous_sso_is_shared_hosting($service)) {
+    if (!$service || $service->domainstatus !== 'Active' || !softaculous_sso_is_shared_hosting($service)
+        || softaculous_sso_theme_lists_sites($serviceId)) {
         return '';
     }
 
